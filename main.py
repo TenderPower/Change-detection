@@ -84,9 +84,9 @@ if __name__ == "__main__":
             configs[key] = args[key]
 
     if configs.quick_prototype:
-        configs.limit_train_batches = 2
-        configs.limit_val_batches = 2
-        configs.limit_test_batches = 2
+        # configs.limit_train_batches = 2
+        # configs.limit_val_batches = 2
+        configs.limit_test_batches = 3
         configs.max_epochs = 1
 
     print_args(configs)
@@ -103,22 +103,22 @@ if __name__ == "__main__":
         logger = WandbLogger(
             project="badlaav",
             id=configs.wandb_id,
-            save_dir="/work/rs/logs",
+            save_dir="/home/ygk/disk/pycharm_project/The-Change-You-Want-to-See-main/work/rs/logs",
             name=configs.experiment_name,
         )
         callbacks.append(ModelCheckpoint(monitor="val/overall_loss", mode="min", save_last=True))
 
     trainer = None
-    if configs.test_from_checkpoint == "":
-        # train the model and store the path to the best model (as per the validation set)
-        # Note: multi-GPU training is supported.
-        trainer, test_checkpoint_path = train(configs, model, logger, datamodule, callbacks)
-        # test the best model exactly once on a single GPU
-        torch.distributed.destroy_process_group()
-    else:
-        # test the given model checkpoint
-        test_checkpoint_path = configs.test_from_checkpoint
-
+    # if configs.test_from_checkpoint == "":
+    #     # train the model and store the path to the best model (as per the validation set)
+    #     # Note: multi-GPU training is supported.
+    #     trainer, test_checkpoint_path = train(configs, model, logger, datamodule, callbacks)
+    #     # test the best model exactly once on a single GPU
+    #     torch.distributed.destroy_process_group()
+    # else:
+    #     # test the given model checkpoint
+    #     test_checkpoint_path = configs.test_from_checkpoint
+    test_checkpoint_path = None
     configs.gpus = 1
     if trainer is None or trainer.global_rank == 0:
         test(
