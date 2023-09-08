@@ -12,6 +12,7 @@ from easydict import EasyDict
 from einops import rearrange
 from PIL import Image
 from pycocotools import mask as coco_mask_utils
+from alignment import image_procession
 
 def get_easy_dict_from_yaml_file(path_to_yaml_file):
     """
@@ -64,3 +65,18 @@ def cache_data_triton(path_to_dataset, path_to_file, machine):
         shutil.copy(os.path.join(path_to_dataset, path_to_file), caching_location)
         os.sync()
     return caching_location
+
+def tensor_to_PIL(tensor):
+    image = tensor.cpu().clone()
+    image = image.squeeze(0)
+    unloader = transforms.ToPILImage()
+    image = unloader(image)
+    return image
+
+def preprocessing_images(image1, image2):
+    """
+    # preprocessing the dataset
+    """
+    return image_procession(images_scan= image1, images_reference= image2)
+
+
