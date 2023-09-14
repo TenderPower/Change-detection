@@ -258,7 +258,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
                         bboxes_per_image = bboxes_per_image[0][bboxes_per_image[1] == 0]
                         bbox_list = BoxList(
                             bboxes_per_image[:, :4],
-                            image_size=(256, 256),
+                            image_size=(128, 128),
                             mode="xyxy",
                         )
                         bbox_list.add_field("scores", bboxes_per_image[:, 4])
@@ -269,7 +269,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
                     for bboxes_per_image in bboxes_per_side:
                         bbox_list = BoxList(
                             bboxes_per_image,
-                            image_size=(256, 256),
+                            image_size=(128, 128),
                             mode="xyxy",
                         )
                         bbox_list.add_field("labels", torch.ones(bboxes_per_image.shape[0]))
@@ -352,7 +352,7 @@ def marshal_getitem_data(data, split):
             target_region_and_annotations,
         ) = utils.geometry.resize_image_and_annotations(
             data["image1"],
-            output_shape_as_hw=(256, 256),
+            output_shape_as_hw=(128, 128),
             annotations=data["image1_target_annotations"],
         )
         data["image1_target_annotations"] = target_region_and_annotations
@@ -361,7 +361,7 @@ def marshal_getitem_data(data, split):
             target_region_and_annotations,
         ) = utils.geometry.resize_image_and_annotations(
             data["image2"],
-            output_shape_as_hw=(256, 256),
+            output_shape_as_hw=(128, 128),
             annotations=data["image2_target_annotations"],
         )
         data["image2_target_annotations"] = target_region_and_annotations
@@ -524,7 +524,7 @@ class WandbCallbackManager(pl.Callback):
 
     def get_wandb_bboxes(self, bboxes_per_image, class_id):
         boxes_for_this_image = []
-        image_width, image_height = 256, 256
+        image_width, image_height = 128, 128
         try:
             scores = bboxes_per_image[:, 4]
         except:
