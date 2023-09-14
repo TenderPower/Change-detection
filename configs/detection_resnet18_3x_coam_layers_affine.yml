@@ -1,6 +1,7 @@
 encoder: resnet18
-attention: coam
-coam_layer_data: [3, [512, 256, 128], [128, 64, 32]]
+attention: homo
+#coam_layer_data: [3, [512, 256, 128], [128, 64, 32]]
+coam_layer_data: [ 5, [ 512, 256, 128, 64, 64 ], [ 128, 64, 32, 16, 8 ] ]
 lr: 0.0001
 weight_decay: 0.0005
 batch_size: 16
@@ -11,7 +12,7 @@ datasets:
     name: coco_train
     class: InpatinedCocoDataset
     args:
-      path_to_dataset: ~/data/Projectdatas/ygkProject_data/coco_inpainted/train
+      path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/train
       split: "train"
       method: "centernet"
       image_transformation: "affine"
@@ -19,7 +20,7 @@ datasets:
     name: coco_val
     class: InpatinedCocoDataset
     args:
-      path_to_dataset: ~/data/Projectdatas/ygkProject_data/coco_inpainted/train
+      path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/train
       split: "val"
       method: "centernet"
       image_transformation: "affine"
@@ -27,21 +28,21 @@ datasets:
     - name: coco_test_small
       class: InpatinedCocoDataset
       args:
-        path_to_dataset: ~/data/Projectdatas/ygkProject_data/coco_inpainted/test/small
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/small
         split: "test"
         method: "centernet"
         image_transformation: "affine"
     - name: coco_test_medium
       class: InpatinedCocoDataset
       args:
-        path_to_dataset: ~/data/Projectdatas/ygkProject_data/coco_inpainted/test/medium
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/medium
         split: "test"
         method: "centernet"
         image_transformation: "affine"
     - name: coco_test_large
       class: InpatinedCocoDataset
       args:
-        path_to_dataset: ~/data/Projectdatas/ygkProject_data/coco_inpainted/test/large
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/large
         split: "test"
         method: "centernet"
         image_transformation: "affine"
@@ -51,21 +52,21 @@ datasets:
         - name: coco_test_small
           class: InpatinedCocoDataset
           args:
-            path_to_dataset: ~/data/Projectdatas/ygkProject_data/coco_inpainted/test/small
+            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/small
             split: "test"
             method: "centernet"
             image_transformation: "affine"
         - name: coco_test_medium
           class: InpatinedCocoDataset
           args:
-            path_to_dataset: ~/data/Projectdatas/ygkProject_data/coco_inpainted/test/medium
+            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/medium
             split: "test"
             method: "centernet"
             image_transformation: "affine"
         - name: coco_test_large
           class: InpatinedCocoDataset
           args:
-            path_to_dataset: ~/data/Projectdatas/ygkProject_data/coco_inpainted/test/large
+            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/large
             split: "test"
             method: "centernet"
             image_transformation: "affine"

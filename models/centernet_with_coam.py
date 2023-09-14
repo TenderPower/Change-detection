@@ -4,6 +4,7 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import copy
 from detectron2.structures.image_list import ImageList
 from easydict import EasyDict
 from loguru import logger as L
@@ -14,8 +15,10 @@ import utils.general
 import wandb
 from data.datamodule import DataModule
 from models.coattention import CoAttentionModule
-from segmentation_models_pytorch.unet.model import Unet
+# from segmentation_models_pytorch.unet.model import Unet
+from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
+from utils.general import perspective_transform_masks, preprocessing_images
 
 plt.ioff()
 
@@ -35,6 +38,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
             num_coam_layers=number_of_coam_layers,
             decoder_attention_type=args.decoder_attention,
             disable_segmentation_head=True,
+            fix_dim = True,
         )
         self.coattention_modules = nn.ModuleList(
             [
@@ -136,7 +140,71 @@ class CenterNetWithCoAttention(pl.LightningModule):
             img_metas=batch["query_metadata"],
             rescale=False,
         )
-        return left_predicted_bboxes, right_predicted_bboxes
+        return (
+            [
+                [bboxes.cpu(), classification.cpu()]
+                for bboxes, classification in left_predicted_bboxes
+            ],
+            [
+                [bboxes.cpu(), classification.cpu()]
+                for bboxes, classification in right_predicted_bboxes
+            ],
+            [bboxes.cpu() for bboxes in batch["left_image_target_bboxes"]],
+            [bboxes.cpu() for bboxes in batch["right_image_target_bboxes"]],
+        )
+
+    def validation_epoch_end(self, multiple_test_set_outputs):
+        """
+        Test set evaluation function.
+        """
+
+        multiple_test_set_outputs = [multiple_test_set_outputs]
+        # iterate over all the test sets
+        for test_set_name, test_set_batch_outputs in zip(
+                ["cocoval"], multiple_test_set_outputs
+        ):
+            predicted_bboxes = []
+            target_bboxes = []
+            # iterate over all the batches for the current test set
+            for test_set_outputs in test_set_batch_outputs:
+                (
+                    left_predicted_bboxes,
+                    right_predicted_bboxes,
+                    left_target_bboxes,
+                    right_target_bboxes,
+                ) = test_set_outputs
+                # iterate over all predictions for images
+                for bboxes_per_side in [left_predicted_bboxes, right_predicted_bboxes]:
+                    for bboxes_per_image in bboxes_per_side:
+                        # filter out background bboxes
+                        bboxes_per_image = bboxes_per_image[0][bboxes_per_image[1] == 0]
+                        bbox_list = BoxList(
+                            bboxes_per_image[:, :4],
+                            image_size=(128, 128),
+                            mode="xyxy",
+                        )
+                        bbox_list.add_field("scores", bboxes_per_image[:, 4])
+                        bbox_list.add_field("labels", torch.ones(bboxes_per_image.shape[0]))
+                        predicted_bboxes.append(bbox_list)
+                # iterate over all targets for images
+                for bboxes_per_side in [left_target_bboxes, right_target_bboxes]:
+                    for bboxes_per_image in bboxes_per_side:
+                        bbox_list = BoxList(
+                            bboxes_per_image,
+                            image_size=(128, 128),
+                            mode="xyxy",
+                        )
+                        bbox_list.add_field("labels", torch.ones(bboxes_per_image.shape[0]))
+                        bbox_list.add_field("difficult", torch.zeros(bboxes_per_image.shape[0]))
+                        target_bboxes.append(bbox_list)
+            # compute metrics
+            ap_map_precision_recall = eval_detection_voc(
+                predicted_bboxes, target_bboxes, iou_thresh=0.5
+            )
+            self.log(f'{test_set_name}_AP', ap_map_precision_recall['ap'][1], on_epoch=True)
+            L.log("INFO",
+                  f"{test_set_name} AP: {ap_map_precision_recall['ap']}, mAP: {ap_map_precision_recall['map']}", )
+            # print(f"INFO, {test_set_name} AP: {ap_map_precision_recall['ap']}, mAP: {ap_map_precision_recall['map']}\n")
 
     def test_step(self, batch, batch_index, dataloader_index=0):
         left_image_outputs, right_image_outputs = self(batch)
@@ -171,7 +239,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
             multiple_test_set_outputs = [multiple_test_set_outputs]
         # iterate over all the test sets
         for test_set_name, test_set_batch_outputs in zip(
-            self.test_set_names, multiple_test_set_outputs
+                self.test_set_names, multiple_test_set_outputs
         ):
             predicted_bboxes = []
             target_bboxes = []
@@ -224,15 +292,45 @@ class CenterNetWithCoAttention(pl.LightningModule):
         return optimizer
 
     def forward(self, batch):
+        left_images = batch['left_image']
+        right_images = batch['right_image']
+        l2r, r, r2l, transfH, invertransfH = preprocessing_images(left_images, right_images)
+        l2r = torch.stack(l2r, 0)
+        r = torch.stack(r, 0)
+        r2l = torch.stack(r2l, 0)
+        im_sizes = [i.shape[-2:] for i in left_images]
+        # 1 图片只是初步对齐而已
+        # 2 对边缘的黑色进行处理
+        imasks = [np.ones(im, dtype='uint8') for im in im_sizes]
+
+        imasks1 = perspective_transform_masks(imasks, transfH, im_sizes, criterion='imasks')  # img1->img2
+        imasks1 = torch.stack(imasks1, 0).unsqueeze(1)
+        imasks2 = perspective_transform_masks(copy.deepcopy(imasks), invertransfH, im_sizes,
+                                              criterion='imasks')  # img2->img1
+        imasks2 = torch.stack(imasks2, 0).unsqueeze(1)
+        # 对没有变换的图进行边缘处理
+        process_r = right_images * imasks1
+        process_l = left_images * imasks2
+
+        # 3 用变化后的图片 + 用黑色边缘处理后的图片
+        left2right_encoded_features = self.unet_model.encoder(l2r)
+        processright_encoded_features = self.unet_model.encoder(process_r)
+
+        right2left_encoded_features = self.unet_model.encoder(r2l)
+        processleft_encoded_features = self.unet_model.encoder(process_l)
 
         left_image_encoded_features = self.unet_model.encoder(batch["left_image"])
         right_image_encoded_features = self.unet_model.encoder(batch["right_image"])
+        # 4 进行原图feature map 与 对齐后feature map之间的操作
+
         for i in range(len(self.coattention_modules)):
             (
                 left_image_encoded_features[-(i + 1)],
                 right_image_encoded_features[-(i + 1)],
             ) = self.coattention_modules[i](
-                left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)]
+                left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)],
+                left2right_encoded_features[-(i + 1)], processright_encoded_features[-(i + 1)],
+                right2left_encoded_features[-(i + 1)], processleft_encoded_features[-(i + 1)]
             )
         left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)
         right_image_decoded_features = self.unet_model.decoder(*right_image_encoded_features)
@@ -335,45 +433,6 @@ class WandbCallbackManager(pl.Callback):
         trainer.logger.experiment.config.update(self.args, allow_val_change=True)
 
     @rank_zero_only
-    def on_validation_batch_end(
-        self, trainer, model, predicted_bboxes, batch, batch_idx, dataloader_idx=0
-    ):
-        if batch_idx == 0:
-            self.val_batch = batch
-            left_predicted_bboxes, right_predicted_bboxes = predicted_bboxes
-            self.val_set_predicted_bboxes = [
-                (
-                    predicted_bboxes_per_left_image[0][predicted_bboxes_per_left_image[1] == 0].to(
-                        "cpu"
-                    ),
-                    (
-                        predicted_bboxes_per_right_image[0][
-                            predicted_bboxes_per_right_image[1] == 0
-                        ].to("cpu")
-                    ),
-                )
-                for predicted_bboxes_per_left_image, predicted_bboxes_per_right_image in zip(
-                    left_predicted_bboxes, right_predicted_bboxes
-                )
-            ]
-            self.val_set_target_bboxes = [
-                (target_bboxes_per_left_image.to("cpu"), target_bboxes_per_right_image.to("cpu"))
-                for target_bboxes_per_left_image, target_bboxes_per_right_image in zip(
-                    batch["left_image_target_bboxes"], batch["right_image_target_bboxes"]
-                )
-            ]
-
-    @rank_zero_only
-    def on_validation_end(self, trainer, model):
-        self.log_qualitative_predictions(
-            self.val_batch,
-            self.val_set_predicted_bboxes,
-            self.val_set_target_bboxes,
-            "val",
-            trainer,
-        )
-
-    @rank_zero_only
     def on_test_start(self, trainer, model):
         self.test_batches = [[] for _ in range(len(self.test_set_names))]
         self.test_set_predicted_bboxes = [[] for _ in range(len(self.test_set_names))]
@@ -381,7 +440,7 @@ class WandbCallbackManager(pl.Callback):
 
     @rank_zero_only
     def on_test_batch_end(
-        self, trainer, model, predicted_and_target_bboxes, batch, batch_idx, dataloader_idx=0
+            self, trainer, model, predicted_and_target_bboxes, batch, batch_idx, dataloader_idx=0
     ):
         if batch_idx == 0:
             self.test_batches[dataloader_idx] = batch
@@ -419,25 +478,25 @@ class WandbCallbackManager(pl.Callback):
             )
 
     def log_qualitative_predictions(
-        self,
-        batch,
-        predicted_bboxes,
-        target_bboxes,
-        batch_name,
-        trainer,
+            self,
+            batch,
+            predicted_bboxes,
+            target_bboxes,
+            batch_name,
+            trainer,
     ):
         """
         Logs the predicted masks for a single val/test batch for qualitative analysis.
         """
         outputs = []
         for (
-            left_image,
-            right_image,
-            target_bboxes_per_image,
-            predicted_bboxes_per_image,
+                left_image,
+                right_image,
+                target_bboxes_per_image,
+                predicted_bboxes_per_image,
         ) in zip(batch["left_image"], batch["right_image"], target_bboxes, predicted_bboxes):
             for this_image, predicted_bboxes_per_image, target_bboxes_per_image in zip(
-                [left_image, right_image], predicted_bboxes_per_image, target_bboxes_per_image
+                    [left_image, right_image], predicted_bboxes_per_image, target_bboxes_per_image
             ):
                 predicted_bboxes_for_this_image = self.get_wandb_bboxes(
                     predicted_bboxes_per_image, class_id=1

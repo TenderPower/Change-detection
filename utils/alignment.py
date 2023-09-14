@@ -14,7 +14,7 @@ from torchvision.transforms.functional import pil_to_tensor
 import math
 
 from PIL import Image
-import general
+import utils.general as general
 
 MAX_FEATURES = 1000
 GOOD_MATCH_PERCENT = 0.8
@@ -156,11 +156,11 @@ def image_procession(images_scan, images_reference):
     # batchsize = images_scan.shape[0]
     # Maskrcnn
     batchsize = len(images_scan)
-    im_scan = []
-    im_refer = []
-    im_refer_tr= []
-    im_transf = []
-    iitransf = []
+    im_scan2refer = []
+    im_refer2refer = []
+    im_refer2scan= []
+    transfH = []
+    invertransfH = []
     # im_or = []
     for i in range(batchsize):
         # Convert Tesnor to Cv
@@ -169,38 +169,21 @@ def image_procession(images_scan, images_reference):
         image_scan_cv = cv2.cvtColor(numpy.asarray(img_scan_plt), cv2.COLOR_RGB2BGR)
         image_reference_cv = cv2.cvtColor(numpy.asarray(img_reference_plt), cv2.COLOR_RGB2BGR)
         # Align the images
-        scan, reference, H = alignImages(image_scan_cv,image_reference_cv)
+        s2r, r2r, H = alignImages(image_scan_cv,image_reference_cv)
         inverH = torch.inverse(torch.Tensor(H)).numpy()
         # add
         h, w, channels = image_scan_cv.shape
-        perspective_image_scan = cv2.warpPerspective(image_reference_cv, inverH, (w, h))
-        im_scan.append((pil_to_tensor(Image.fromarray(cv2.cvtColor(scan, cv2.COLOR_BGR2RGB))).float()/255.0).cuda())
-        im_refer.append((pil_to_tensor(Image.fromarray(cv2.cvtColor(reference, cv2.COLOR_BGR2RGB))).float()/255.0).cuda())
-        im_refer_tr.append((pil_to_tensor(Image.fromarray(cv2.cvtColor(perspective_image_scan, cv2.COLOR_BGR2RGB))).float()/255.0).cuda())
-        im_transf.append(torch.Tensor(H))
-        iitransf.append(torch.Tensor(inverH))
-        # im_or.append(img_scan_plt)
-    im_scan_tensor = im_scan
-    # im_scan_tensor = torch.stack(im_scan, dim = 0).cuda()
-    im_refer_tensor = im_refer
-    # im_refer_tensor = torch.stack(im_refer, dim = 0).cuda()
-    im_refertran_tensor = im_refer_tr
-    # im_refertran_tensor = torch.stack(im_refer_tr, dim = 0).cuda()
-    im_transf_tensor = torch.stack(im_transf, dim = 0).cuda()
-    iitransf_tensor = torch.stack(iitransf, dim = 0).cuda()
+        r2s = cv2.warpPerspective(image_reference_cv, inverH, (w, h))
+        im_scan2refer.append((pil_to_tensor(Image.fromarray(cv2.cvtColor(s2r, cv2.COLOR_BGR2RGB))).float()/255.0).cuda())
+        im_refer2refer.append((pil_to_tensor(Image.fromarray(cv2.cvtColor(r2r, cv2.COLOR_BGR2RGB))).float()/255.0).cuda())
+        im_refer2scan.append((pil_to_tensor(Image.fromarray(cv2.cvtColor(r2s, cv2.COLOR_BGR2RGB))).float()/255.0).cuda())
+        transfH.append(torch.Tensor(H))
+        invertransfH.append(torch.Tensor(inverH))
 
+    transfH_tensor = torch.stack(transfH, dim = 0).cuda()
+    invertransfH_tensor = torch.stack(invertransfH, dim = 0).cuda()
 
-    """images = zip(im_scan, im_refer)
-    for i, im in enumerate(images):
-        plt.subplot(3,batchsize, i + 1)
-        plt.imshow(im[0])
-        plt.subplot(3, batchsize, i + 4)
-        plt.imshow(im[1])
-        plt.subplot(3, batchsize, i + 7)
-        plt.imshow(im_or[i])
-    plt.show()"""
-
-    return im_scan_tensor, im_refer_tensor, im_refertran_tensor, im_transf_tensor, iitransf_tensor
+    return im_scan2refer, im_refer2refer, im_refer2scan, transfH_tensor, invertransfH_tensor
 
 
 def resize_based_on_image_reference(im_scan,w,h):

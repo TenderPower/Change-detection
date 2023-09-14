@@ -10,18 +10,28 @@ class CoAttentionModule(nn.Module):
             self.attention_layer = CoAttentionLayer(input_channels, hidden_channels)
         elif attention_type == "noam":
             self.attention_layer = NoAttentionLayer()
+        elif attention_type == 'homo':
+            self.attention_layer = MyLayer()
         else:
             raise NotImplementedError(f"Unknown attention {attention_type}")
 
-    def forward(self, left_features, right_features):
-        weighted_r = self.attention_layer(left_features, right_features)
-        weighted_l = self.attention_layer(right_features, left_features)
-        left_attended_features = rearrange(
-            [left_features, weighted_r], "two b c h w -> b (two c) h w"
-        )
-        right_attended_features = rearrange(
-            [right_features, weighted_l], "two b c h w -> b (two c) h w"
-        )
+    def forward(self, left_features, right_features, left2right_features, processright_features, right2left_features,
+                processleft_features):
+
+        weighted_r = self.attention_layer(left2right_features, processright_features)
+        weighted_l = self.attention_layer(right2left_features, processleft_features)
+        # 将两个feature进行拼接
+        # left_attended_features = rearrange(
+        #     [left_features, weighted_l], "two b c h w -> b (two c) h w"
+        # )
+        # right_attended_features = rearrange(
+        #     [right_features, weighted_r], "two b c h w -> b (two c) h w"
+        # )
+        # 将两个feature进行合并操作（加 or ×）
+        # left_attended_features = left_features + weighted_l
+        # right_attended_features = right_features + weighted_r
+        left_attended_features = left_features * weighted_l
+        right_attended_features = right_features * weighted_r
         return left_attended_features, right_attended_features
 
 
@@ -52,3 +62,12 @@ class NoAttentionLayer(nn.Module):
 
     def forward(self, query_features, reference_features):
         return reference_features
+
+
+class MyLayer(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, feature1, feature2):
+        correlation = feature1 - feature2
+        return correlation

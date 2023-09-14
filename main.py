@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 import torch
 from easydict import EasyDict
 from loguru import logger as L
-from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.plugins import DDPPlugin
 from pytorch_lightning.utilities import rank_zero_only
@@ -33,6 +33,8 @@ def train(configs, model, logger, datamodule, callbacks=None):
         check_val_every_n_epoch=1,
         benchmark=False,
         profiler="simple",
+        num_sanity_val_steps=0
+
     )
     trainer.fit(model, datamodule=datamodule)
     return trainer, trainer.checkpoint_callback.best_model_path
@@ -101,12 +103,13 @@ if __name__ == "__main__":
     callbacks = [get_logging_callback_manager(configs)]
     if not configs.no_logging:
         logger = WandbLogger(
-            project="badlaav",
+            project="tcywtsm",
             id=configs.wandb_id,
-            save_dir="/home/ygk/disk/pycharm_project/The-Change-You-Want-to-See-main/work/rs/logs",
+            save_dir="/home/ygk/disk/pycharm_project/The-Change-You-Want-to-See-main/work",
             name=configs.experiment_name,
         )
         callbacks.append(ModelCheckpoint(monitor="val/overall_loss", mode="min", save_last=True))
+        # callbacks.append(EarlyStopping(monitor='val/overall_loss', patience=15, mode='min'))
 
     trainer = None
     if configs.test_from_checkpoint == "":
@@ -118,7 +121,7 @@ if __name__ == "__main__":
     else:
         # test the given model checkpoint
         test_checkpoint_path = configs.test_from_checkpoint
-    test_checkpoint_path = None
+
     configs.gpus = 1
     if trainer is None or trainer.global_rank == 0:
         test(

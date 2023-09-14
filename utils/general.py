@@ -2,7 +2,7 @@ import io
 import os
 import shutil
 from pathlib import Path
-
+import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -12,7 +12,8 @@ from easydict import EasyDict
 from einops import rearrange
 from PIL import Image
 from pycocotools import mask as coco_mask_utils
-from alignment import image_procession
+from utils.alignment import image_procession
+from torchvision.transforms import transforms
 
 def get_easy_dict_from_yaml_file(path_to_yaml_file):
     """
@@ -80,3 +81,32 @@ def preprocessing_images(image1, image2):
     return image_procession(images_scan= image1, images_reference= image2)
 
 
+def perspective_transform_masks(infor, transfor, img_sizes, proba_threshold = .55, criterion='masks'):
+    """
+    # change the masks according to the M
+    :param infor: List[Dict{}]
+    :param transfor: Tensor(N,3,3)
+    :return: List[Tensor(N,h,w)]
+    """
+    tms = []
+    def get_transform_mask(mask,H,w,h):
+        mask = cv2.warpPerspective(mask,H,(w,h))
+        return torch.from_numpy(mask).to("cuda")
+    transfor = transfor.detach().cpu().numpy()
+    if criterion == 'imasks':
+        for mask, tf, img_size in zip(infor,transfor,img_sizes):
+            h, w = img_size
+            a = get_transform_mask(mask,tf,w,h)
+            tms.append(a)
+    else:
+        for inf, trsf, img_size in zip(infor,transfor,img_sizes):
+            h,w = img_size
+            masks = inf['masks'] > proba_threshold
+            numpy_masks = masks.squeeze().detach().cpu().numpy().astype(np.uint8)
+            if numpy_masks.shape[0] != 0:
+                a = [get_transform_mask(mask, trsf, w, h) for mask in numpy_masks]
+                a = torch.stack(a, 0)
+            else:
+                a = torch.ones(0, h, w )
+            tms.append(a)
+    return tms
