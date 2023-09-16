@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" serverName="ygk@172.16.150.205:22 password (2)" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+    <option name="confirmBeforeUploading" value="false" />
+    <serverData>
+      <paths name="ygk@172.16.150.140:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/disk1/ygk/project/The-Change-You-Want-to-See-main" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="ygk@172.16.150.150:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/disk1/ygk/pycharm_project/The-Change-You-Want-to-See-main" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="ygk@172.16.150.205:22 password (2)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/disk/ygk/pycharm_project/The-Change-You-Want-to-See-main" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="zt@172.16.150.150:22 password">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+  </component>
+</project>
