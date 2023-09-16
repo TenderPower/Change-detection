@@ -38,7 +38,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
             num_coam_layers=number_of_coam_layers,
             decoder_attention_type=args.decoder_attention,
             disable_segmentation_head=True,
-            fix_dim = True,
+            fix_dim = False,
         )
         self.coattention_modules = nn.ModuleList(
             [
@@ -292,33 +292,6 @@ class CenterNetWithCoAttention(pl.LightningModule):
         return optimizer
 
     def forward(self, batch):
-        left_images = batch['left_image']
-        right_images = batch['right_image']
-        l2r, r, r2l, transfH, invertransfH = preprocessing_images(left_images, right_images)
-        l2r = torch.stack(l2r, 0)
-        r = torch.stack(r, 0)
-        r2l = torch.stack(r2l, 0)
-        im_sizes = [i.shape[-2:] for i in left_images]
-        # 1 图片只是初步对齐而已
-        # 2 对边缘的黑色进行处理
-        imasks = [np.ones(im, dtype='uint8') for im in im_sizes]
-
-        imasks1 = perspective_transform_masks(imasks, transfH, im_sizes, criterion='imasks')  # img1->img2
-        imasks1 = torch.stack(imasks1, 0).unsqueeze(1)
-        imasks2 = perspective_transform_masks(copy.deepcopy(imasks), invertransfH, im_sizes,
-                                              criterion='imasks')  # img2->img1
-        imasks2 = torch.stack(imasks2, 0).unsqueeze(1)
-        # 对没有变换的图进行边缘处理
-        process_r = right_images * imasks1
-        process_l = left_images * imasks2
-
-        # 3 用变化后的图片 + 用黑色边缘处理后的图片
-        left2right_encoded_features = self.unet_model.encoder(l2r)
-        processright_encoded_features = self.unet_model.encoder(process_r)
-
-        right2left_encoded_features = self.unet_model.encoder(r2l)
-        processleft_encoded_features = self.unet_model.encoder(process_l)
-
         left_image_encoded_features = self.unet_model.encoder(batch["left_image"])
         right_image_encoded_features = self.unet_model.encoder(batch["right_image"])
         # 4 进行原图feature map 与 对齐后feature map之间的操作
@@ -329,8 +302,6 @@ class CenterNetWithCoAttention(pl.LightningModule):
                 right_image_encoded_features[-(i + 1)],
             ) = self.coattention_modules[i](
                 left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)],
-                left2right_encoded_features[-(i + 1)], processright_encoded_features[-(i + 1)],
-                right2left_encoded_features[-(i + 1)], processleft_encoded_features[-(i + 1)]
             )
         left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)
         right_image_decoded_features = self.unet_model.decoder(*right_image_encoded_features)

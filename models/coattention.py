@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from einops import rearrange
-
+import models.homo as homo
 
 class CoAttentionModule(nn.Module):
     def __init__(self, input_channels=2048, hidden_channels=256, attention_type="coam"):
@@ -15,23 +15,22 @@ class CoAttentionModule(nn.Module):
         else:
             raise NotImplementedError(f"Unknown attention {attention_type}")
 
-    def forward(self, left_features, right_features, left2right_features, processright_features, right2left_features,
-                processleft_features):
+    def forward(self, left_features, right_features):
 
-        weighted_r = self.attention_layer(left2right_features, processright_features)
-        weighted_l = self.attention_layer(right2left_features, processleft_features)
+        weighted_r = self.attention_layer(left_features, right_features)
+        weighted_l = self.attention_layer(right_features, left_features)
         # 将两个feature进行拼接
-        # left_attended_features = rearrange(
-        #     [left_features, weighted_l], "two b c h w -> b (two c) h w"
-        # )
-        # right_attended_features = rearrange(
-        #     [right_features, weighted_r], "two b c h w -> b (two c) h w"
-        # )
+        left_attended_features = rearrange(
+            [left_features, weighted_l], "two b c h w -> b (two c) h w"
+        )
+        right_attended_features = rearrange(
+            [right_features, weighted_r], "two b c h w -> b (two c) h w"
+        )
         # 将两个feature进行合并操作（加 or ×）
         # left_attended_features = left_features + weighted_l
         # right_attended_features = right_features + weighted_r
-        left_attended_features = left_features * weighted_l
-        right_attended_features = right_features * weighted_r
+        # left_attended_features = left_features * weighted_l
+        # right_attended_features = right_features * weighted_r
         return left_attended_features, right_attended_features
 
 
@@ -69,5 +68,6 @@ class MyLayer(nn.Module):
         super().__init__()
 
     def forward(self, feature1, feature2):
-        correlation = feature1 - feature2
+        feature1_ = homo.alignIm(feature1, feature2)
+        correlation = feature1_ - feature2
         return correlation
