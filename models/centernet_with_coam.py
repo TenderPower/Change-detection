@@ -19,6 +19,7 @@ from models.coattention import CoAttentionModule
 from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
 from utils.general import perspective_transform_masks, preprocessing_images
+import models.homo as homo
 
 plt.ioff()
 
@@ -38,7 +39,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
             num_coam_layers=number_of_coam_layers,
             decoder_attention_type=args.decoder_attention,
             disable_segmentation_head=True,
-            fix_dim = False,
+            fix_dim=False,
         )
         self.coattention_modules = nn.ModuleList(
             [
@@ -204,7 +205,6 @@ class CenterNetWithCoAttention(pl.LightningModule):
             self.log(f'{test_set_name}_AP', ap_map_precision_recall['ap'][1], on_epoch=True)
             L.log("INFO",
                   f"{test_set_name} AP: {ap_map_precision_recall['ap']}, mAP: {ap_map_precision_recall['map']}", )
-            # print(f"INFO, {test_set_name} AP: {ap_map_precision_recall['ap']}, mAP: {ap_map_precision_recall['map']}\n")
 
     def test_step(self, batch, batch_index, dataloader_index=0):
         left_image_outputs, right_image_outputs = self(batch)
@@ -292,6 +292,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
         return optimizer
 
     def forward(self, batch):
+        h, h_inv = homo.alignIm2getH(batch["left_image"], batch["right_image"])
         left_image_encoded_features = self.unet_model.encoder(batch["left_image"])
         right_image_encoded_features = self.unet_model.encoder(batch["right_image"])
         # 4 进行原图feature map 与 对齐后feature map之间的操作
@@ -301,7 +302,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
                 left_image_encoded_features[-(i + 1)],
                 right_image_encoded_features[-(i + 1)],
             ) = self.coattention_modules[i](
-                left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)],
+                left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)], h, h_inv
             )
         left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)
         right_image_decoded_features = self.unet_model.decoder(*right_image_encoded_features)

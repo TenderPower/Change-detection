@@ -3,6 +3,7 @@ import torch.nn as nn
 from einops import rearrange
 import models.homo as homo
 
+
 class CoAttentionModule(nn.Module):
     def __init__(self, input_channels=2048, hidden_channels=256, attention_type="coam"):
         super().__init__()
@@ -15,10 +16,10 @@ class CoAttentionModule(nn.Module):
         else:
             raise NotImplementedError(f"Unknown attention {attention_type}")
 
-    def forward(self, left_features, right_features):
+    def forward(self, left_features, right_features, h, h_inv):
 
-        weighted_r = self.attention_layer(left_features, right_features)
-        weighted_l = self.attention_layer(right_features, left_features)
+        weighted_r = self.attention_layer(left_features, right_features, h)
+        weighted_l = self.attention_layer(right_features, left_features, h_inv)
         # 将两个feature进行拼接
         left_attended_features = rearrange(
             [left_features, weighted_l], "two b c h w -> b (two c) h w"
@@ -67,7 +68,7 @@ class MyLayer(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, feature1, feature2):
-        feature1_ = homo.alignIm(feature1, feature2)
+    def forward(self, feature1, feature2, h):
+        feature1_ = homo.alignfea(feature1, h)
         correlation = feature1_ - feature2
         return correlation
