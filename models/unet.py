@@ -24,7 +24,12 @@ class Unet(Unet):
                  num_coam_layers: Optional[int] = 0,
                  return_decoder_features=False,
                  disable_segmentation_head=False,
-                 fix_dim=False):
+                 fix_dim=False,
+                 able_customize_set=False,
+                 fuse=False,
+                 number_of_post_layers: int = 1,
+                 number_of_middle_layers: int = 2,
+                 sizes: List[int] = (4, 8, 16, 32, 64)):
         super().__init__(encoder_name, encoder_depth, encoder_weights, decoder_use_batchnorm, decoder_channels,
                          decoder_attention_type, in_channels, classes, activation, aux_params, num_coam_layers,
                          return_decoder_features, disable_segmentation_head)
@@ -32,6 +37,7 @@ class Unet(Unet):
         self.decoder = UnetDecoder(
             encoder_channels=self.encoder.out_channels,
             decoder_channels=decoder_channels,
+            sizes=sizes,
             n_blocks=encoder_depth,
             use_batchnorm=decoder_use_batchnorm,
             center=True if encoder_name.startswith("vgg") else False,
@@ -39,6 +45,10 @@ class Unet(Unet):
             num_coam_layers=num_coam_layers,
             return_features=return_decoder_features,
             fix_dim=fix_dim,
+            able_customize_set=able_customize_set,
+            fuse=fuse,
+            number_of_post_layers=number_of_post_layers,
+            number_of_middle_layers=number_of_middle_layers,
         )
 
 
@@ -47,6 +57,7 @@ class UnetDecoder(nn.Module):
             self,
             encoder_channels,
             decoder_channels,
+            sizes,
             n_blocks=5,
             use_batchnorm=True,
             attention_type=None,
@@ -54,6 +65,10 @@ class UnetDecoder(nn.Module):
             num_coam_layers=0,
             return_features=False,
             fix_dim=False,
+            able_customize_set=False,
+            fuse=False,
+            number_of_post_layers=1,
+            number_of_middle_layers=2,
     ):
         super().__init__()
 
@@ -75,10 +90,31 @@ class UnetDecoder(nn.Module):
         else:
             a = 1
             b = 2
-        in_channels = [(1 + a) * head_channels] + list(decoder_channels[:-1])
-        skip_channels = list(encoder_channels[1:]) + [0]
-        for i in range(0, num_coam_layers - 1):  # i的范围在[0,num_coam_layers-1)
-            skip_channels[i] *= b
+
+        if able_customize_set:
+            channels_ = sizes[:number_of_post_layers]
+            a = channels_[0]
+            channels_ = channels_[1:number_of_post_layers]
+            number_of_post_layers -= 1
+            in_channels = [head_channels + a * a] + list(decoder_channels[:-1])
+            skip_channels = list(encoder_channels[1:]) + [0]
+            if number_of_post_layers != 0:
+                if fuse:
+                    for i in range(0, number_of_post_layers):
+                        skip_channels[i] = skip_channels[i] + channels_[i] ** 2 + a ** 2
+                    a= channels_[i] ** 2 + a ** 2
+                else:
+                    for i in range(0, number_of_post_layers):
+                        skip_channels[i] = skip_channels[i] + channels_[i] ** 2
+                    a = channels_[i] ** 2
+            for i in range(0, number_of_middle_layers):
+                skip_channels[i + number_of_post_layers] = skip_channels[i + number_of_post_layers] + a
+
+        else:
+            in_channels = [(1 + a) * head_channels] + list(decoder_channels[:-1])
+            skip_channels = list(encoder_channels[1:]) + [0]
+            for i in range(0, num_coam_layers - 1):  # i的范围在[0,num_coam_layers-1)
+                skip_channels[i] *= b
         out_channels = decoder_channels
 
         if center:

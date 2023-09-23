@@ -1,0 +1,61 @@
+import torch
+import torch.nn as nn
+from models.coattention import MyLayer
+
+
+class PostModule(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layer = MyLayer()
+
+    def forward(self, left_features, right_features):
+        weighted_r = self.layer(left_features, right_features)
+        weighted_l = self.layer(right_features, left_features)
+        # 将两个feature进行拼接
+        left_attended_features = torch.cat((left_features, weighted_r), 1)
+        right_attended_features = torch.cat((right_features, weighted_l), 1)
+
+        return left_attended_features, right_attended_features, weighted_r, weighted_l
+
+class FuseMoudle(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layer = MyLayer()
+    def forward(self, left_features, right_features, weighted_r, weighted_l):
+        # 向上采样 上一层的权重
+        up = nn.Upsample(scale_factor=2, mode='bilinear')
+        weighted_r_ = up(weighted_r)
+        weighted_l_ = up(weighted_l)
+        # 这一层的权重
+        weighted_r = self.layer(left_features, right_features)
+        weighted_l = self.layer(right_features, left_features)
+        # 上一层和这一层进行融合
+        weighted_r = torch.cat((weighted_r, weighted_r_),1)
+        weighted_l = torch.cat((weighted_l, weighted_l_),1)
+        left_attended_features = torch.cat((left_features, weighted_r), 1)
+        right_attended_features = torch.cat((right_features, weighted_l), 1)
+
+        return left_attended_features, right_attended_features, weighted_r, weighted_l
+
+
+class MiddleModule(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, left_features, right_features, weighted_r, weighted_l):
+        # 向上采样
+        up = nn.Upsample(scale_factor=2, mode='bilinear')
+        weighted_r = up(weighted_r)
+        weighted_l = up(weighted_l)
+        left_attended_features = torch.cat((left_features, weighted_r), 1)
+        right_attended_features = torch.cat((right_features, weighted_l), 1)
+
+        return left_attended_features, right_attended_features, weighted_r, weighted_l
+
+
+class FrontModule(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self):
+        pass

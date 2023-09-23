@@ -45,14 +45,16 @@ class InpatinedCocoDataset(Dataset):
             with open(train_val_test_split_file_path, "rb") as file:
                 return pickle.load(file)
         indices_of_coco_images = np.load(os.path.join(self.path_to_dataset, "list_of_indices.npy"))
+        number_of_images = int(len(indices_of_coco_images) * 0.5)  # 30000
+        indices_of_coco_images = indices_of_coco_images[:number_of_images]
         np.random.shuffle(indices_of_coco_images)
         if split == "test":
             train_val_test_split = {
                 "test": indices_of_coco_images,
             }
         else:
-            number_of_images = len(indices_of_coco_images)
-            number_of_train_images = int(0.95 * number_of_images)
+            number_of_images = len(indices_of_coco_images)  # 30000
+            number_of_train_images = int(0.95 * number_of_images)  # 28500
             train_val_test_split = {
                 "train": indices_of_coco_images[:number_of_train_images],
                 "val": indices_of_coco_images[number_of_train_images:],

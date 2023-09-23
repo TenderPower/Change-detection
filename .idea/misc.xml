@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.9.17 (sftp://ygk@172.16.150.150:22/disk1/ygk/miniconda3/envs/cyws/bin/python)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.9.17 (sftp://ygk@172.16.150.205:22/disk/ygk/miniconda3/envs/cyws/bin/python)" project-jdk-type="Python SDK" />
 </project>

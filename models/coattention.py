@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 import models.homo as homo
+from kornia.geometry.transform.imgwarp import warp_perspective
+from mmflow.models.decoders.raft_decoder import CorrelationPyramid
 
 
 class CoAttentionModule(nn.Module):
@@ -16,22 +18,19 @@ class CoAttentionModule(nn.Module):
         else:
             raise NotImplementedError(f"Unknown attention {attention_type}")
 
-    def forward(self, left_features, right_features, h, h_inv):
+    def forward(self, left_features, right_features):
 
-        weighted_r = self.attention_layer(left_features, right_features, h)
-        weighted_l = self.attention_layer(right_features, left_features, h_inv)
+        weighted_r = self.attention_layer(left_features, right_features)
+        weighted_l = self.attention_layer(right_features, left_features)
         # 将两个feature进行拼接
-        left_attended_features = rearrange(
-            [left_features, weighted_l], "two b c h w -> b (two c) h w"
-        )
-        right_attended_features = rearrange(
-            [right_features, weighted_r], "two b c h w -> b (two c) h w"
-        )
-        # 将两个feature进行合并操作（加 or ×）
-        # left_attended_features = left_features + weighted_l
-        # right_attended_features = right_features + weighted_r
-        # left_attended_features = left_features * weighted_l
-        # right_attended_features = right_features * weighted_r
+        left_attended_features = torch.cat((left_features, weighted_r), 1)
+        right_attended_features = torch.cat((right_features, weighted_l), 1)
+        # left_attended_features = rearrange(
+        #     [left_features, weighted_l], "two b c h w -> b (two c) h w"
+        # )
+        # right_attended_features = rearrange(
+        #     [right_features, weighted_r], "two b c h w -> b (two c) h w"
+        # )
         return left_attended_features, right_attended_features
 
 
@@ -67,8 +66,11 @@ class NoAttentionLayer(nn.Module):
 class MyLayer(nn.Module):
     def __init__(self):
         super().__init__()
+        self.cor = CorrelationPyramid(num_levels=1)
 
-    def forward(self, feature1, feature2, h):
-        feature1_ = homo.alignfea(feature1, h)
-        correlation = feature1_ - feature2
+    def forward(self, feature1, feature2):
+        N, C, H, W = feature1.shape
+        # assume: f1:NxCxHxW f2:NxCxHxW
+        correlation = self.cor(feature1, feature2)  # N*H*Wx1xhxw
+        correlation = correlation[0].view(N, H, W, -1).permute(0, 3, 1, 2)  # NxhxwxHxW
         return correlation

@@ -20,6 +20,7 @@ from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
 from utils.general import perspective_transform_masks, preprocessing_images
 import models.homo as homo
+from models.middle import PostModule, MiddleModule, FuseMoudle
 
 plt.ioff()
 
@@ -30,7 +31,8 @@ class CenterNetWithCoAttention(pl.LightningModule):
         self.test_set_names = [test_set.name for test_set in args.datasets.test_datasets]
         self.lr = args.lr
         self.weight_decay = args.weight_decay
-        number_of_coam_layers, coam_input_channels, coam_hidden_channels = args.coam_layer_data
+        number_of_coam_layers, number_of_post_layers, number_of_middle_layers, coam_input_channels, coam_hidden_channels, sizes = args.coam_layer_data
+        self.number_of_post_layers = number_of_post_layers
         self.unet_model = Unet(
             args.encoder,
             decoder_channels=(256, 256, 128, 128, 64),
@@ -40,15 +42,26 @@ class CenterNetWithCoAttention(pl.LightningModule):
             decoder_attention_type=args.decoder_attention,
             disable_segmentation_head=True,
             fix_dim=False,
+            able_customize_set=True,
+            fuse=True,
+            number_of_post_layers=number_of_post_layers,
+            number_of_middle_layers=number_of_middle_layers,
+            sizes=sizes,
         )
-        self.coattention_modules = nn.ModuleList(
+
+        self.post_modules = nn.ModuleList(
             [
-                CoAttentionModule(
-                    input_channels=coam_input_channels[i],
-                    hidden_channels=coam_hidden_channels[i],
-                    attention_type=args.attention,
-                )
-                for i in range(number_of_coam_layers)
+                PostModule() for i in range(1)
+            ]
+        )
+        self.fuse_modules = nn.ModuleList(
+            [
+                FuseMoudle() for i in range(number_of_post_layers - 1)
+            ]
+        )
+        self.middle_modules = nn.ModuleList(
+            [
+                MiddleModule() for i in range(number_of_middle_layers)
             ]
         )
 
@@ -292,18 +305,44 @@ class CenterNetWithCoAttention(pl.LightningModule):
         return optimizer
 
     def forward(self, batch):
-        h, h_inv = homo.alignIm2getH(batch["left_image"], batch["right_image"])
         left_image_encoded_features = self.unet_model.encoder(batch["left_image"])
         right_image_encoded_features = self.unet_model.encoder(batch["right_image"])
-        # 4 进行原图feature map 与 对齐后feature map之间的操作
 
-        for i in range(len(self.coattention_modules)):
+        # 从最后一层往中间层
+        for i in range(len(self.post_modules)):
             (
                 left_image_encoded_features[-(i + 1)],
                 right_image_encoded_features[-(i + 1)],
-            ) = self.coattention_modules[i](
-                left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)], h, h_inv
+                weight_r, weight_l
+            ) = self.post_modules[i](
+                left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)])
+        # 从最后一层到中间层进行特征融合
+        l = len(self.post_modules)
+        for i in range(len(self.fuse_modules)):
+            (
+                left_image_encoded_features[-(i + 1 + l)],
+                right_image_encoded_features[-(i + 1 + l)],
+                weight_r, weight_l
+            ) = self.fuse_modules[i](
+                left_image_encoded_features[-(i + 1 + l)],
+                right_image_encoded_features[-(i + 1 + l)],
+                weight_r, weight_l
             )
+
+        a = self.number_of_post_layers
+        # 中间层
+        for i in range(len(self.middle_modules)):
+            (
+                left_image_encoded_features[-(i + 1 + a)],
+                right_image_encoded_features[-(i + 1 + a)],
+                weight_r,
+                weight_l,
+            ) = self.middle_modules[i](
+                left_image_encoded_features[-(i + 1 + a)], right_image_encoded_features[-(i + 1 + a)],
+                weight_r,
+                weight_l
+            )
+
         left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)
         right_image_decoded_features = self.unet_model.decoder(*right_image_encoded_features)
         return (
