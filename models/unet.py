@@ -29,6 +29,7 @@ class Unet(Unet):
                  fuse=False,
                  number_of_post_layers: int = 1,
                  number_of_middle_layers: int = 2,
+                 number_of_front_layers: int = 3,
                  sizes: List[int] = (4, 8, 16, 32, 64)):
         super().__init__(encoder_name, encoder_depth, encoder_weights, decoder_use_batchnorm, decoder_channels,
                          decoder_attention_type, in_channels, classes, activation, aux_params, num_coam_layers,
@@ -49,6 +50,7 @@ class Unet(Unet):
             fuse=fuse,
             number_of_post_layers=number_of_post_layers,
             number_of_middle_layers=number_of_middle_layers,
+            number_of_front_layers=number_of_front_layers,
         )
 
 
@@ -69,6 +71,7 @@ class UnetDecoder(nn.Module):
             fuse=False,
             number_of_post_layers=1,
             number_of_middle_layers=2,
+            number_of_front_layers=0,
     ):
         super().__init__()
 
@@ -102,14 +105,16 @@ class UnetDecoder(nn.Module):
                 if fuse:
                     for i in range(0, number_of_post_layers):
                         skip_channels[i] = skip_channels[i] + channels_[i] ** 2 + a ** 2
-                    a= channels_[i] ** 2 + a ** 2
+                    a = channels_[i] ** 2 + a ** 2
                 else:
                     for i in range(0, number_of_post_layers):
                         skip_channels[i] = skip_channels[i] + channels_[i] ** 2
                     a = channels_[i] ** 2
             for i in range(0, number_of_middle_layers):
                 skip_channels[i + number_of_post_layers] = skip_channels[i + number_of_post_layers] + a
-
+            if number_of_front_layers != 0:
+                for i in range(0, number_of_front_layers):
+                    skip_channels[-(i + 2)] *= 2
         else:
             in_channels = [(1 + a) * head_channels] + list(decoder_channels[:-1])
             skip_channels = list(encoder_channels[1:]) + [0]

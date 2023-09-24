@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from models.coattention import MyLayer
-
+from einops import rearrange
 
 class PostModule(nn.Module):
     def __init__(self):
@@ -56,6 +56,23 @@ class MiddleModule(nn.Module):
 class FrontModule(nn.Module):
     def __init__(self):
         super().__init__()
+        self.layer = HomoLayer()
+    def forward(self,left_features, right_features, left2right_features, right2left_features):
+        weighted_r = self.layer(right_features, left2right_features)
+        weighted_l = self.layer(left_features, right2left_features)
+        left_attended_features = rearrange(
+            [left_features, weighted_l], "two b c h w -> b (two c) h w"
+        )
+        right_attended_features = rearrange(
+            [right_features, weighted_r], "two b c h w -> b (two c) h w"
+        )
+        return left_attended_features, right_attended_features
 
-    def forward(self):
-        pass
+
+class HomoLayer(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, feature1, feature2):
+        correlation = feature1 - feature2
+        return correlation

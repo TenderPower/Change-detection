@@ -20,7 +20,7 @@ from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
 from utils.general import perspective_transform_masks, preprocessing_images
 import models.homo as homo
-from models.middle import PostModule, MiddleModule, FuseMoudle
+from models.middle import PostModule, MiddleModule, FuseMoudle, FrontModule
 
 plt.ioff()
 
@@ -31,8 +31,10 @@ class CenterNetWithCoAttention(pl.LightningModule):
         self.test_set_names = [test_set.name for test_set in args.datasets.test_datasets]
         self.lr = args.lr
         self.weight_decay = args.weight_decay
-        number_of_coam_layers, number_of_post_layers, number_of_middle_layers, coam_input_channels, coam_hidden_channels, sizes = args.coam_layer_data
+        number_of_coam_layers, number_of_post_layers, number_of_middle_layers, number_of_front_layers, coam_input_channels, coam_hidden_channels, sizes = args.coam_layer_data
+        self.number_of_front_layers = number_of_front_layers
         self.number_of_post_layers = number_of_post_layers
+        self.number_of_middle_layers = number_of_middle_layers
         self.unet_model = Unet(
             args.encoder,
             decoder_channels=(256, 256, 128, 128, 64),
@@ -46,6 +48,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
             fuse=True,
             number_of_post_layers=number_of_post_layers,
             number_of_middle_layers=number_of_middle_layers,
+            number_of_front_layers=number_of_front_layers,
             sizes=sizes,
         )
 
@@ -62,6 +65,11 @@ class CenterNetWithCoAttention(pl.LightningModule):
         self.middle_modules = nn.ModuleList(
             [
                 MiddleModule() for i in range(number_of_middle_layers)
+            ]
+        )
+        self.front_modules = nn.ModuleList(
+            [
+                FrontModule() for i in range(number_of_front_layers)
             ]
         )
 
@@ -305,6 +313,16 @@ class CenterNetWithCoAttention(pl.LightningModule):
         return optimizer
 
     def forward(self, batch):
+        left_images = batch['left_image']
+        right_images = batch['right_image']
+        l2r, _, r2l, _, _ = preprocessing_images(left_images, right_images)
+        l2r = torch.stack(l2r, 0)
+        r2l = torch.stack(r2l, 0)
+
+        # 用变化后的图片
+        left2right_encoded_features = self.unet_model.encoder(l2r)[:self.number_of_front_layers + 1]
+        right2left_encoded_features = self.unet_model.encoder(r2l)[:self.number_of_front_layers + 1]
+
         left_image_encoded_features = self.unet_model.encoder(batch["left_image"])
         right_image_encoded_features = self.unet_model.encoder(batch["right_image"])
 
@@ -341,6 +359,18 @@ class CenterNetWithCoAttention(pl.LightningModule):
                 left_image_encoded_features[-(i + 1 + a)], right_image_encoded_features[-(i + 1 + a)],
                 weight_r,
                 weight_l
+            )
+        a = self.number_of_post_layers + self.number_of_middle_layers
+        # 从第一层往中间层过渡
+        for i in range(len(self.front_modules)):
+            (
+                left_image_encoded_features[-(i + 1 + a)],
+                right_image_encoded_features[-(i + 1 + a)],
+            ) = self.front_modules[i](
+                left_image_encoded_features[-(i + 1 + a)],
+                right_image_encoded_features[-(i + 1 + a)],
+                left2right_encoded_features[-(i + 1)],
+                right2left_encoded_features[-(i + 1)]
             )
 
         left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)
