@@ -67,12 +67,6 @@ class CenterNetWithCoAttention(pl.LightningModule):
                 MiddleModule() for i in range(number_of_middle_layers)
             ]
         )
-        self.front_modules = nn.ModuleList(
-            [
-                FrontModule() for i in range(number_of_front_layers)
-            ]
-        )
-
         self.centernet_head = CenterNetHead(
             in_channel=64,
             feat_channel=64,
@@ -320,8 +314,8 @@ class CenterNetWithCoAttention(pl.LightningModule):
         r2l = torch.stack(r2l, 0)
 
         # 用变化后的图片
-        left2right_encoded_features = self.unet_model.encoder(l2r)[:self.number_of_front_layers + 1]
-        right2left_encoded_features = self.unet_model.encoder(r2l)[:self.number_of_front_layers + 1]
+        left2right_encoded_features = self.unet_model.encoder(l2r)
+        right2left_encoded_features = self.unet_model.encoder(r2l)
 
         left_image_encoded_features = self.unet_model.encoder(batch["left_image"])
         right_image_encoded_features = self.unet_model.encoder(batch["right_image"])
@@ -333,7 +327,8 @@ class CenterNetWithCoAttention(pl.LightningModule):
                 right_image_encoded_features[-(i + 1)],
                 weight_r, weight_l
             ) = self.post_modules[i](
-                left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)])
+                left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)],
+                left2right_encoded_features[-(i + 1)], right2left_encoded_features[-(i + 1)])
         # 从最后一层到中间层进行特征融合
         l = len(self.post_modules)
         for i in range(len(self.fuse_modules)):
@@ -344,6 +339,8 @@ class CenterNetWithCoAttention(pl.LightningModule):
             ) = self.fuse_modules[i](
                 left_image_encoded_features[-(i + 1 + l)],
                 right_image_encoded_features[-(i + 1 + l)],
+                left2right_encoded_features[-(i + 1 + l)],
+                right2left_encoded_features[-(i + 1 + l)],
                 weight_r, weight_l
             )
 
@@ -357,20 +354,9 @@ class CenterNetWithCoAttention(pl.LightningModule):
                 weight_l,
             ) = self.middle_modules[i](
                 left_image_encoded_features[-(i + 1 + a)], right_image_encoded_features[-(i + 1 + a)],
+                left2right_encoded_features[-(i + 1 + a)], right2left_encoded_features[-(i + 1 + a)],
                 weight_r,
                 weight_l
-            )
-        a = self.number_of_post_layers + self.number_of_middle_layers
-        # 从第一层往中间层过渡
-        for i in range(len(self.front_modules)):
-            (
-                left_image_encoded_features[-(i + 1 + a)],
-                right_image_encoded_features[-(i + 1 + a)],
-            ) = self.front_modules[i](
-                left_image_encoded_features[-(i + 1 + a)],
-                right_image_encoded_features[-(i + 1 + a)],
-                left2right_encoded_features[-(i + 1)],
-                right2left_encoded_features[-(i + 1)]
             )
 
         left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)

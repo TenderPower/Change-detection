@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="ygk@172.16.150.150:22 password" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="ygk@172.16.150.140:22 password" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="ygk@172.16.150.140:22 password">
         <serverdata>
           <mappings>
-            <mapping deploy="/disk1/ygk/project/The-Change-You-Want-to-See-main" local="$PROJECT_DIR$" />
+            <mapping deploy="/disk1/ygk/pycharm_project/The-Change-You-Want-to-See-main" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

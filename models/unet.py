@@ -99,19 +99,19 @@ class UnetDecoder(nn.Module):
             a = channels_[0]
             channels_ = channels_[1:number_of_post_layers]
             number_of_post_layers -= 1
-            in_channels = [head_channels + a * a] + list(decoder_channels[:-1])
+            in_channels = [head_channels*2 + a * a] + list(decoder_channels[:-1])
             skip_channels = list(encoder_channels[1:]) + [0]
             if number_of_post_layers != 0:
                 if fuse:
                     for i in range(0, number_of_post_layers):
-                        skip_channels[i] = skip_channels[i] + channels_[i] ** 2 + a ** 2
+                        skip_channels[i] = skip_channels[i]*2 + channels_[i] ** 2 + a ** 2
                     a = channels_[i] ** 2 + a ** 2
                 else:
                     for i in range(0, number_of_post_layers):
                         skip_channels[i] = skip_channels[i] + channels_[i] ** 2
                     a = channels_[i] ** 2
             for i in range(0, number_of_middle_layers):
-                skip_channels[i + number_of_post_layers] = skip_channels[i + number_of_post_layers] + a
+                skip_channels[i + number_of_post_layers] = skip_channels[i + number_of_post_layers]*2 + a
             if number_of_front_layers != 0:
                 for i in range(0, number_of_front_layers):
                     skip_channels[-(i + 2)] *= 2

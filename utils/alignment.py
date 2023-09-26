@@ -170,7 +170,7 @@ def image_procession(images_scan, images_reference):
         image_reference_cv = cv2.cvtColor(numpy.asarray(img_reference_plt), cv2.COLOR_RGB2BGR)
         # Align the images
         s2r, r2r, H = alignImages(image_scan_cv,image_reference_cv)
-        inverH = torch.inverse(torch.Tensor(H)).numpy()
+        inverH = torch.pinverse(torch.Tensor(H)).numpy()
         # add
         h, w, channels = image_scan_cv.shape
         r2s = cv2.warpPerspective(image_reference_cv, inverH, (w, h))

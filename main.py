@@ -103,7 +103,7 @@ if __name__ == "__main__":
     callbacks = [get_logging_callback_manager(configs)]
     if not configs.no_logging:
         logger = WandbLogger(
-            project="tcywtsm",
+            project="cyws_128_1gpu",
             id=configs.wandb_id,
             save_dir="/home/ygk/disk/pycharm_project/The-Change-You-Want-to-See-main/work",
             name=configs.experiment_name,
