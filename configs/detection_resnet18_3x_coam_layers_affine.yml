@@ -13,7 +13,7 @@ datasets:
     name: coco_train
     class: InpatinedCocoDataset
     args:
-      path_to_dataset: /home/ygk/disk/data/coco-inpainted/train
+      path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/train
       split: "train"
       method: "centernet"
       image_transformation: "affine"
@@ -21,7 +21,7 @@ datasets:
     name: coco_val
     class: InpatinedCocoDataset
     args:
-      path_to_dataset: /home/ygk/disk/data/coco-inpainted/train
+      path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/train
       split: "val"
       method: "centernet"
       image_transformation: "affine"
@@ -29,21 +29,21 @@ datasets:
     - name: coco_test_small
       class: InpatinedCocoDataset
       args:
-        path_to_dataset: /home/ygk/disk/data/coco-inpainted/test/small
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/small
         split: "test"
         method: "centernet"
         image_transformation: "affine"
     - name: coco_test_medium
       class: InpatinedCocoDataset
       args:
-        path_to_dataset: /home/ygk/disk/data/coco-inpainted/test/medium
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/medium
         split: "test"
         method: "centernet"
         image_transformation: "affine"
     - name: coco_test_large
       class: InpatinedCocoDataset
       args:
-        path_to_dataset: /home/ygk/disk/data/coco-inpainted/test/large
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/large
         split: "test"
         method: "centernet"
         image_transformation: "affine"
@@ -53,21 +53,21 @@ datasets:
         - name: coco_test_small
           class: InpatinedCocoDataset
           args:
-            path_to_dataset: /home/ygk/disk/data/coco-inpainted/test/small
+            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/small
             split: "test"
             method: "centernet"
             image_transformation: "affine"
         - name: coco_test_medium
           class: InpatinedCocoDataset
           args:
-            path_to_dataset: /home/ygk/disk/data/coco-inpainted/test/medium
+            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/medium
             split: "test"
             method: "centernet"
             image_transformation: "affine"
         - name: coco_test_large
           class: InpatinedCocoDataset
           args:
-            path_to_dataset: /home/ygk/disk/data/coco-inpainted/test/large
+            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/large
             split: "test"
             method: "centernet"
             image_transformation: "affine"

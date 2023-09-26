@@ -11,13 +11,13 @@ class PostModule(nn.Module):
         self.homolayer = HomoLayer()
 
     def forward(self, left_features, right_features, left2right_features, right2left_features):
-        weighted_r_f = self.layer(left_features, right_features)
-        weighted_l_f = self.layer(right_features, left_features)
+        weighted_r_f = self.layer(left_features, right2left_features)
+        weighted_l_f = self.layer(right_features, left2right_features)
         weighted_r_h = self.homolayer(right_features, left2right_features)
         weighted_l_h = self.homolayer(left_features, right2left_features)
         # 将homo和flow拼接
-        weighted_r = torch.cat((weighted_r_f, weighted_r_h), 1)
-        weighted_l = torch.cat((weighted_l_f, weighted_l_h), 1)
+        weighted_r = torch.cat((weighted_r_h, weighted_r_f), 1)
+        weighted_l = torch.cat((weighted_l_h, weighted_l_f), 1)
         # 将两个feature进行拼接
         left_attended_features = torch.cat((left_features, weighted_r), 1)
         right_attended_features = torch.cat((right_features, weighted_l), 1)
@@ -37,8 +37,8 @@ class FuseMoudle(nn.Module):
         weighted_r_ = up(weighted_r)
         weighted_l_ = up(weighted_l)
         # 这一层的权重
-        weighted_r = self.layer(left_features, right_features)
-        weighted_l = self.layer(right_features, left_features)
+        weighted_r = self.layer(left_features, right2left_features)
+        weighted_l = self.layer(right_features, left2right_features)
         # 上一层和这一层进行融合(flow)
         weighted_r_f = torch.cat((weighted_r, weighted_r_), 1)
         weighted_l_f = torch.cat((weighted_l, weighted_l_), 1)
@@ -46,8 +46,8 @@ class FuseMoudle(nn.Module):
         weighted_r_h = self.homolayer(right_features, left2right_features)
         weighted_l_h = self.homolayer(left_features, right2left_features)
         # 合并
-        weighted_r = torch.cat((weighted_r_f, weighted_r_h), 1)
-        weighted_l = torch.cat((weighted_l_f, weighted_l_h), 1)
+        weighted_r = torch.cat((weighted_r_h, weighted_r_f), 1)
+        weighted_l = torch.cat((weighted_l_h, weighted_l_f), 1)
 
         left_attended_features = torch.cat((left_features, weighted_r), 1)
         right_attended_features = torch.cat((right_features, weighted_l), 1)
@@ -69,8 +69,8 @@ class MiddleModule(nn.Module):
         weighted_r_h = self.homolayer(right_features, left2right_features)
         weighted_l_h = self.homolayer(left_features, right2left_features)
         # 合并
-        weighted_r = torch.cat((weighted_r_f, weighted_r_h), 1)
-        weighted_l = torch.cat((weighted_l_f, weighted_l_h), 1)
+        weighted_r = torch.cat((weighted_r_h, weighted_r_f), 1)
+        weighted_l = torch.cat((weighted_l_h, weighted_l_f), 1)
 
         left_attended_features = torch.cat((left_features, weighted_r), 1)
         right_attended_features = torch.cat((right_features, weighted_l), 1)
