@@ -31,7 +31,8 @@ class CenterNetWithCoAttention(pl.LightningModule):
         self.test_set_names = [test_set.name for test_set in args.datasets.test_datasets]
         self.lr = args.lr
         self.weight_decay = args.weight_decay
-        number_of_coam_layers, number_of_post_layers, number_of_middle_layers, number_of_front_layers, coam_input_channels, coam_hidden_channels, sizes = args.coam_layer_data
+        number_of_coam_layers, number_of_post_layers, number_of_middle_layers, number_of_front_layers, \
+            coam_input_channels, coam_hidden_channels, sizes = args.coam_layer_data
         self.number_of_front_layers = number_of_front_layers
         self.number_of_post_layers = number_of_post_layers
         self.number_of_middle_layers = number_of_middle_layers
@@ -54,7 +55,20 @@ class CenterNetWithCoAttention(pl.LightningModule):
 
         self.post_modules = nn.ModuleList(
             [
-                PostModule() for i in range(number_of_post_layers)
+                PostModule(channels=coam_input_channels[i]) for i in range(number_of_post_layers)
+            ]
+        )
+        self.middle_modules = nn.ModuleList(
+            [
+                MiddleModule(channels=coam_input_channels[i + 1], previous_channels=coam_input_channels[i]) for i in
+                range(number_of_middle_layers)
+            ]
+        )
+        self.front_modules = nn.ModuleList(
+            [
+                FrontModule(channels=coam_input_channels[i + number_of_middle_layers + number_of_post_layers],
+                            previous_channels=coam_input_channels[i + number_of_middle_layers]) for i in
+                range(number_of_front_layers)
             ]
         )
 
@@ -311,14 +325,40 @@ class CenterNetWithCoAttention(pl.LightningModule):
         left_image_encoded_features = self.unet_model.encoder(batch["left_image"])
         right_image_encoded_features = self.unet_model.encoder(batch["right_image"])
 
-        # 从最后一层往中间层
+        # 从最后一层往倒数第二层
         for i in range(len(self.post_modules)):
             (
                 left_image_encoded_features[-(i + 1)],
                 right_image_encoded_features[-(i + 1)],
+                weighted_l,
+                weighted_r
             ) = self.post_modules[i](
                 left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)],
                 left2right_encoded_features[-(i + 1)], right2left_encoded_features[-(i + 1)])
+        a = self.number_of_post_layers
+        # 开始融合直到第二层
+        for i in range(len(self.middle_modules)):
+            (
+                left_image_encoded_features[-(i + 1 + a)],
+                right_image_encoded_features[-(i + 1 + a)],
+                weighted_l,
+                weighted_r
+            ) = self.middle_modules[i](
+                left_image_encoded_features[-(i + 1 + a)], right_image_encoded_features[-(i + 1 + a)],
+                left2right_encoded_features[-(i + 1 + a)], right2left_encoded_features[-(i + 1 + a)],
+                weighted_l, weighted_r
+            )
+        b = self.number_of_middle_layers
+        # 第二层到第一层
+        for i in range(len(self.front_modules)):
+            (
+                left_image_encoded_features[-(i + 1 + a + b)],
+                right_image_encoded_features[-(i + 1 + a + b)],
+            ) = self.front_modules[i](
+                left_image_encoded_features[-(i + 1 + a + b)], right_image_encoded_features[-(i + 1 + a + b)],
+                left2right_encoded_features[-(i + 1 + a + b)], right2left_encoded_features[-(i + 1 + a + b)],
+                weighted_l, weighted_r
+            )
 
         left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)
         right_image_decoded_features = self.unet_model.decoder(*right_image_encoded_features)

@@ -15,7 +15,7 @@ class ImageConverter(nn.Module):
         #     nn.MaxPool2d(2, stride=2),
         #     nn.ReLU(True)
         # )
-        self.conv = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=6, stride=2, padding=2)
+        self.conv = nn.Conv2d(in_channels=1, out_channels=12, kernel_size=1)
 
     def forward(self, x):
         # x = self.layer(x)
@@ -25,7 +25,7 @@ class ImageConverter(nn.Module):
 
 
 # 创建一个示例输入
-input_image = torch.randn(1, 3, 32, 32)  # 输入图像的大小为28x28，通道数为3
+input_image = torch.randn(1, 1, 32, 32)  # 输入图像的大小为28x28，通道数为3
 
 # 创建图像转换器
 converter = ImageConverter()
@@ -40,3 +40,21 @@ img2 = torch.randn(1,256,8,8)
 cp = CorrelationPyramid(1)
 out = cp(img1,img2)
 out
+
+
+
+import torch
+import torch.nn as nn
+
+# 定义输入特征图的形状
+input_shape = (512, 4, 4)
+# 定义目标特征图的形状
+target_shape = (256, 8, 8)
+# 定义反卷积层
+deconv = nn.ConvTranspose2d(input_shape[0], target_shape[0], kernel_size=5, stride=2, padding=2, output_padding=1)
+# 创建一个随机输入特征图
+input_feature = torch.randn(15, input_shape[0], input_shape[1], input_shape[2])
+# 执行反卷积操作
+output_feature = deconv(input_feature)
+print("sdfsd")
+print(output_feature.shape)  # 输出特征图的形状
