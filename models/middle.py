@@ -17,20 +17,17 @@ class PostModule(nn.Module):
         weighted_r_f = self.layer(left_features, right_features)
         weighted_l_f = self.layer(right_features, left_features)
         # 对weight进行CNN，方便与homo融合
-        weighted_r_f = self.cnn(weighted_r_f)
-        weighted_l_f = self.cnn(weighted_l_f)
+        weighted_r_f_c = self.cnn(weighted_r_f)
+        weighted_l_f_c = self.cnn(weighted_l_f)
         # homo
         weighted_r_h = self.homolayer(right_features, left2right_features)
         weighted_l_h = self.homolayer(left_features, right2left_features)
         # homo+weight_cnn -- 新思路中的思路一 --效果比*好
-        weighted_l = weighted_l_h + weighted_r_f
-        weighted_r = weighted_r_h + weighted_l_f
-        # # homo*weight_cnn -- 新思路中的思路二
-        # weighted_l = torch.mul(weighted_l_h, weighted_r_f)
-        # weighted_r = torch.mul(weighted_r_h, weighted_l_f)
+        weighted_l = weighted_l_h + weighted_r_f_c
+        weighted_r = weighted_r_h + weighted_l_f_c
         left_attended_features = torch.cat((left_features, weighted_l), 1)
         right_attended_features = torch.cat((right_features, weighted_r), 1)
-
+        # 单单使用概率进行上采样
         return left_attended_features, right_attended_features, weighted_l, weighted_r
 
 
@@ -70,17 +67,21 @@ class MiddleModule(nn.Module):
         self.layer = CCLayer()
         self.homolayer = HomoLayer()
         self.cnn = nn.Conv2d(in_channels=1, out_channels=channels, kernel_size=1)
-        self.convt = nn.ConvTranspose2d(in_channels=previous_channels, out_channels=channels,
-                                        kernel_size=5, stride=2, padding=2,
-                                        output_padding=1)
-
-    def forward(self, left_features, right_features, left2right_features, right2left_features, weighted_l, weighted_r):
-        # 向上采样 使用反卷积层
-        weighted_r_ = self.convt(weighted_r)
-        weighted_l_ = self.convt(weighted_l)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.conv1x1 = nn.Conv2d(in_channels=previous_channels, out_channels=channels, kernel_size=1)
+    def forward(self, left_features, right_features, left2right_features, right2left_features, weighted_l,
+                weighted_r):
+        # 对概率进行上采样
+        weighted_l_ = self.upsample(self.conv1x1(weighted_l))
+        weighted_r_ = self.upsample(self.conv1x1(weighted_r))
         # 这一层的权重
         weighted_r_f = self.layer(left_features, right_features)
         weighted_l_f = self.layer(right_features, left_features)
+
+        # 将上一层与这一层进行相加结合 == 单单只将ccl上采样 融合这一层的ccl，效果不佳
+        # weighted_r_f_all = weighted_r_f + weighted_r_f_u
+        # weighted_l_f_all = weighted_l_f + weighted_l_f_u
+
         # 对weight进行CNN，方便与homo融合
         weighted_r_f = self.cnn(weighted_r_f)
         weighted_l_f = self.cnn(weighted_l_f)
@@ -90,7 +91,8 @@ class MiddleModule(nn.Module):
         # homo+weight_cnn -- 新思路中的思路一 --效果比*好
         weighted_l = weighted_l_h + weighted_r_f
         weighted_r = weighted_r_h + weighted_l_f
-        # 上一层合并这一层信息
+
+        # 上一层合并这一层信息--- 新思路，将上一层的所有信息进行一层上采样 然后融合，不是单纯用反卷积进行采样
         weighted_r = weighted_r_ + weighted_r
         weighted_l = weighted_l_ + weighted_l
 
@@ -106,27 +108,33 @@ class FrontModule(nn.Module):
         self.layer = CCLayer()
         self.homolayer = HomoLayer()
         self.cnn = nn.Conv2d(in_channels=1, out_channels=channels, kernel_size=1)
-        self.convt = nn.ConvTranspose2d(in_channels=previous_channels, out_channels=channels,
-                                        kernel_size=5, stride=2, padding=2,
-                                        output_padding=1)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.conv1x1 = nn.Conv2d(in_channels=previous_channels, out_channels=channels, kernel_size=1)
 
-    def forward(self, left_features, right_features, left2right_features, right2left_features, weighted_l, weighted_r):
-        # 向上采样 使用反卷积层
-        weighted_r_ = self.convt(weighted_r)
-        weighted_l_ = self.convt(weighted_l)
+    def forward(self, left_features, right_features, left2right_features, right2left_features,weighted_l ,
+                weighted_r):
+        # 对概率进行上采样
+        weighted_l_ = self.upsample(self.conv1x1(weighted_l))
+        weighted_r_ = self.upsample(self.conv1x1(weighted_r))
         # 这一层的权重
         weighted_r_f = self.layer(left_features, right_features)
         weighted_l_f = self.layer(right_features, left_features)
+
+        # 将上一层与这一层进行相加结合 == 单单只将ccl上采样 融合这一层的ccl，效果不佳
+        # weighted_r_f_all = weighted_r_f + weighted_r_f_u
+        # weighted_l_f_all = weighted_l_f + weighted_l_f_u
+
         # 对weight进行CNN，方便与homo融合
         weighted_r_f = self.cnn(weighted_r_f)
         weighted_l_f = self.cnn(weighted_l_f)
         # (homo)
         weighted_r_h = self.homolayer(right_features, left2right_features)
         weighted_l_h = self.homolayer(left_features, right2left_features)
+
         # homo+weight_cnn -- 新思路中的思路一 --效果比*好
         weighted_l = weighted_l_h + weighted_r_f
         weighted_r = weighted_r_h + weighted_l_f
-        # 上一层合并这一层信息
+        # 上一层合并这一层信息--- 新思路，将上一层的所有信息进行一层上采样 然后融合，不是单纯用反卷积进行采样
         weighted_r = weighted_r_ + weighted_r
         weighted_l = weighted_l_ + weighted_l
 
