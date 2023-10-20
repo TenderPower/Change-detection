@@ -18,7 +18,7 @@ from models.coattention import CoAttentionModule
 # from segmentation_models_pytorch.unet.model import Unet
 from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
-from utils.general import perspective_transform_masks, preprocessing_images
+from utils.general import preprocessing_images
 import models.homo as homo
 from models.middle import PostModule, MiddleModule, FuseMoudle, FrontModule
 
@@ -56,19 +56,6 @@ class CenterNetWithCoAttention(pl.LightningModule):
         self.post_modules = nn.ModuleList(
             [
                 PostModule(channels=coam_input_channels[i]) for i in range(number_of_post_layers)
-            ]
-        )
-        self.middle_modules = nn.ModuleList(
-            [
-                MiddleModule(channels=coam_input_channels[i + 1], previous_channels=coam_input_channels[i]) for i in
-                range(number_of_middle_layers)
-            ]
-        )
-        self.front_modules = nn.ModuleList(
-            [
-                FrontModule(channels=coam_input_channels[i + number_of_middle_layers + number_of_post_layers],
-                            previous_channels=coam_input_channels[i + number_of_middle_layers]) for i in
-                range(number_of_front_layers)
             ]
         )
 
@@ -201,7 +188,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
                         bboxes_per_image = bboxes_per_image[0][bboxes_per_image[1] == 0]
                         bbox_list = BoxList(
                             bboxes_per_image[:, :4],
-                            image_size=(128, 128),
+                            image_size=(256, 256),
                             mode="xyxy",
                         )
                         bbox_list.add_field("scores", bboxes_per_image[:, 4])
@@ -212,7 +199,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
                     for bboxes_per_image in bboxes_per_side:
                         bbox_list = BoxList(
                             bboxes_per_image,
-                            image_size=(128, 128),
+                            image_size=(256, 256),
                             mode="xyxy",
                         )
                         bbox_list.add_field("labels", torch.ones(bboxes_per_image.shape[0]))
@@ -278,7 +265,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
                         bboxes_per_image = bboxes_per_image[0][bboxes_per_image[1] == 0]
                         bbox_list = BoxList(
                             bboxes_per_image[:, :4],
-                            image_size=(128, 128),
+                            image_size=(256, 256),
                             mode="xyxy",
                         )
                         bbox_list.add_field("scores", bboxes_per_image[:, 4])
@@ -289,7 +276,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
                     for bboxes_per_image in bboxes_per_side:
                         bbox_list = BoxList(
                             bboxes_per_image,
-                            image_size=(128, 128),
+                            image_size=(256, 256),
                             mode="xyxy",
                         )
                         bbox_list.add_field("labels", torch.ones(bboxes_per_image.shape[0]))
@@ -330,35 +317,9 @@ class CenterNetWithCoAttention(pl.LightningModule):
             (
                 left_image_encoded_features[-(i + 1)],
                 right_image_encoded_features[-(i + 1)],
-                weighted_l,
-                weighted_r
             ) = self.post_modules[i](
                 left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)],
                 left2right_encoded_features[-(i + 1)], right2left_encoded_features[-(i + 1)])
-        a = self.number_of_post_layers
-        # 开始融合直到第二层
-        for i in range(len(self.middle_modules)):
-            (
-                left_image_encoded_features[-(i + 1 + a)],
-                right_image_encoded_features[-(i + 1 + a)],
-                weighted_l,
-                weighted_r
-            ) = self.middle_modules[i](
-                left_image_encoded_features[-(i + 1 + a)], right_image_encoded_features[-(i + 1 + a)],
-                left2right_encoded_features[-(i + 1 + a)], right2left_encoded_features[-(i + 1 + a)],
-                weighted_l, weighted_r
-            )
-        b = self.number_of_middle_layers
-        # 第二层到第一层
-        for i in range(len(self.front_modules)):
-            (
-                left_image_encoded_features[-(i + 1 + a + b)],
-                right_image_encoded_features[-(i + 1 + a + b)],
-            ) = self.front_modules[i](
-                left_image_encoded_features[-(i + 1 + a + b)], right_image_encoded_features[-(i + 1 + a + b)],
-                left2right_encoded_features[-(i + 1 + a + b)], right2left_encoded_features[-(i + 1 + a + b)],
-                weighted_l, weighted_r
-            )
 
         left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)
         right_image_decoded_features = self.unet_model.decoder(*right_image_encoded_features)
@@ -380,7 +341,7 @@ def marshal_getitem_data(data, split):
             target_region_and_annotations,
         ) = utils.geometry.resize_image_and_annotations(
             data["image1"],
-            output_shape_as_hw=(128, 128),
+            output_shape_as_hw=(256, 256),
             annotations=data["image1_target_annotations"],
         )
         data["image1_target_annotations"] = target_region_and_annotations
@@ -389,7 +350,7 @@ def marshal_getitem_data(data, split):
             target_region_and_annotations,
         ) = utils.geometry.resize_image_and_annotations(
             data["image2"],
-            output_shape_as_hw=(128, 128),
+            output_shape_as_hw=(256, 256),
             annotations=data["image2_target_annotations"],
         )
         data["image2_target_annotations"] = target_region_and_annotations
@@ -552,7 +513,7 @@ class WandbCallbackManager(pl.Callback):
 
     def get_wandb_bboxes(self, bboxes_per_image, class_id):
         boxes_for_this_image = []
-        image_width, image_height = 128, 128
+        image_width, image_height = 256, 256
         try:
             scores = bboxes_per_image[:, 4]
         except:

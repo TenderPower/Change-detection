@@ -27,8 +27,8 @@ class PostModule(nn.Module):
         weighted_r = weighted_r_h + weighted_l_f_c
         left_attended_features = torch.cat((left_features, weighted_l), 1)
         right_attended_features = torch.cat((right_features, weighted_r), 1)
-        # 单单使用概率进行上采样
-        return left_attended_features, right_attended_features, weighted_l, weighted_r
+        # 不进行上采样
+        return left_attended_features, right_attended_features
 
 
 class FuseMoudle(nn.Module):
@@ -67,8 +67,6 @@ class MiddleModule(nn.Module):
         self.layer = CCLayer()
         self.homolayer = HomoLayer()
         self.cnn = nn.Conv2d(in_channels=1, out_channels=channels, kernel_size=1)
-        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-        self.conv1x1 = nn.Conv2d(in_channels=previous_channels, out_channels=channels, kernel_size=1)
     def forward(self, left_features, right_features, left2right_features, right2left_features, weighted_l,
                 weighted_r):
         # 对概率进行上采样
