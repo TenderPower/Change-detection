@@ -22,7 +22,7 @@ def print_args(configs):
     L.log("INFO", configs)
 
 
-def train(configs, model, logger, datamodule, callbacks=None):
+def train(configs, model, logger, datamodule, checkpoint_path, callbacks=None):
     L.log("INFO", f"Training model.")
     trainer = pl.Trainer.from_argparse_args(
         configs,
@@ -36,7 +36,7 @@ def train(configs, model, logger, datamodule, callbacks=None):
         num_sanity_val_steps=0
 
     )
-    trainer.fit(model, datamodule=datamodule)
+    trainer.fit(model, datamodule=datamodule, ckpt_path=checkpoint_path)
     return trainer, trainer.checkpoint_callback.best_model_path
 
 
@@ -61,6 +61,7 @@ if __name__ == "__main__":
     parser.add_argument("--no_logging", action="store_true", default=False)
     parser.add_argument("--wandb_id", type=str, default=None)
     parser.add_argument("--test_from_checkpoint", type=str, default="")
+    parser.add_argument("--resume_checkpoint", type=str, default="")
     parser.add_argument("--quick_prototype", action="store_true", default=False)
     parser.add_argument("--load_weights_from", type=str, default=None)
     parser.add_argument("--config_file", required=True)
@@ -108,14 +109,18 @@ if __name__ == "__main__":
             save_dir="/home/ygk/disk/pycharm_project/The-Change-You-Want-to-See-main/work",
             name=configs.experiment_name,
         )
-        callbacks.append(ModelCheckpoint(monitor="val/overall_loss", mode="min", save_last=True))
+        # callbacks.append(ModelCheckpoint(monitor="val/overall_loss", mode="min", save_last=True))
+        callbacks.append(ModelCheckpoint(save_top_k=3, monitor="cocoval_AP", mode="max", save_last=True))
         # callbacks.append(EarlyStopping(monitor='val/overall_loss', patience=15, mode='min'))
 
     trainer = None
     if configs.test_from_checkpoint == "":
         # train the model and store the path to the best model (as per the validation set)
         # Note: multi-GPU training is supported.
-        trainer, test_checkpoint_path = train(configs, model, logger, datamodule, callbacks)
+        trainer, test_checkpoint_path = train(
+            configs, model, logger, datamodule,
+            configs.resume_checkpoint if configs.resume_checkpoint != "" else None,
+            callbacks)
         # test the best model exactly once on a single GPU
         torch.distributed.destroy_process_group()
     else:
