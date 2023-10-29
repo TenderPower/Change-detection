@@ -14,8 +14,8 @@ class PostModule(nn.Module):
         self.cnn = nn.Conv2d(in_channels=1, out_channels=channels, kernel_size=1)
 
     def forward(self, left_features, right_features, left2right_features, right2left_features):
-        weighted_r_f = self.layer(left_features, right_features)
-        weighted_l_f = self.layer(right_features, left_features)
+        weighted_r_f = self.layer(left_features, right2left_features)
+        weighted_l_f = self.layer(right_features, left2right_features)
         # 对weight进行CNN，方便与homo融合
         weighted_r_f_c = self.cnn(weighted_r_f)
         weighted_l_f_c = self.cnn(weighted_l_f)
