@@ -14,8 +14,50 @@ class PostModule(nn.Module):
         self.cnn = nn.Conv2d(in_channels=1, out_channels=channels, kernel_size=1)
 
     def forward(self, left_features, right_features, left2right_features, right2left_features):
-        weighted_r_f = self.layer(left_features, right2left_features)
-        weighted_l_f = self.layer(right_features, left2right_features)
+        weighted_r_f = self.layer(left_features, right_features)
+        weighted_l_f = self.layer(right_features, left_features)
+        # 对weight进行CNN，方便与homo融合
+        weighted_r_f_c = self.cnn(weighted_r_f)
+        weighted_l_f_c = self.cnn(weighted_l_f)
+        # homo
+        weighted_r_h = self.homolayer(right_features, left2right_features)
+        weighted_l_h = self.homolayer(left_features, right2left_features)
+        # homo+weight_cnn -- 新思路中的思路一 --效果比*好
+        weighted_l = weighted_l_h + weighted_r_f_c
+        weighted_r = weighted_r_h + weighted_l_f_c
+        left_attended_features = torch.cat((left_features, weighted_l), 1)
+        right_attended_features = torch.cat((right_features, weighted_r), 1)
+        # 不进行上采样
+        return left_attended_features, right_attended_features, weighted_r_f,weighted_l_f
+
+class Post2Module(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.layer = CCLayer()
+        self.homolayer = HomoLayer()
+
+    def forward(self, left_features, right_features, left2right_features, right2left_features):
+        # homo
+        weighted_r_h = self.homolayer(right_features, left2right_features)
+        weighted_l_h = self.homolayer(left_features, right2left_features)
+        weighted_l = weighted_l_h
+        weighted_r = weighted_r_h
+        left_attended_features = torch.cat((left_features, weighted_l), 1)
+        right_attended_features = torch.cat((right_features, weighted_r), 1)
+        # 不进行上采样
+        return left_attended_features, right_attended_features
+
+class Post3Module(nn.Module):
+    def __init__(self,channels=2048):
+        super().__init__()
+        self.layer = CCLayer()
+        self.homolayer = HomoLayer()
+        self.cnn = nn.Conv2d(in_channels=1, out_channels=channels, kernel_size=1)
+    def forward(self, left_features, right_features, left2right_features, right2left_features,weighted_r_f,weighted_l_f ):
+        # 向上采样 上一层的权重
+        up = nn.Upsample(scale_factor=2, mode='bilinear')
+        weighted_r_f = up(weighted_r_f)
+        weighted_l_f = up(weighted_l_f)
         # 对weight进行CNN，方便与homo融合
         weighted_r_f_c = self.cnn(weighted_r_f)
         weighted_l_f_c = self.cnn(weighted_l_f)

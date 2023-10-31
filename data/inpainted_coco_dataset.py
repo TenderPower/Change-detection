@@ -40,7 +40,7 @@ class InpatinedCocoDataset(Dataset):
         return marshal_getitem_data
 
     def get_train_val_test_split(self, split):
-        train_val_test_split_file_path = os.path.join(self.path_to_dataset, "data_split.pkl")
+        train_val_test_split_file_path = os.path.join(self.path_to_dataset, "data_split_1200.pkl")
         if os.path.exists(train_val_test_split_file_path):
             with open(train_val_test_split_file_path, "rb") as file:
                 return pickle.load(file)
