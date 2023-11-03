@@ -20,10 +20,9 @@ from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
 from utils.general import preprocessing_images
 import models.homo as homo
-from models.middle import PostModule, Post2Module, Post3Module
+from models.middle import PostModule, FModule
 
 plt.ioff()
-
 
 class CenterNetWithCoAttention(pl.LightningModule):
     def __init__(self, args):
@@ -52,24 +51,23 @@ class CenterNetWithCoAttention(pl.LightningModule):
             number_of_front_layers=number_of_front_layers,
             sizes=sizes,
         )
+        # 新加的
+        # resnet18[512,256,128,64,64]
+        # resnet50[2048,1024,512,256,64]
 
-        self.post2_modules = nn.ModuleList(
-            [
-                Post2Module() for i in range(number_of_post_layers)
-            ]
-        )
-        self.post_modules = nn.ModuleList(
-            [
-                PostModule(channels=coam_input_channels[i + number_of_post_layers]) for i in
-                range(number_of_middle_layers)
-            ]
-        )
-        self.post3_modules = nn.ModuleList(
-            [
-                Post3Module(channels=coam_input_channels[i + number_of_post_layers + number_of_middle_layers]) for i in
-                range(number_of_front_layers)
-            ]
-        )
+        in_channels = dict(level6=81, level5=341, level4=213, level3=149)
+        # in_channels = dict(level6=81, level5=1109, level4=597, level3=341)
+        corr_cfg = dict(type='Correlation', max_displacement=4, padding=0)
+        warp_cfg = dict(type='Warp', align_corners=True, use_mask=True)
+        act_cfg = dict(type='LeakyReLU', negative_slope=0.1)
+        scaled = False
+        densefeat_channels = (256, 256, 128, 64)
+        # densefeat_channels = (1024, 1024, 512, 256)
+        post_processor = dict(type='ContextNet', in_channels=149 + sum(densefeat_channels))
+        # post_processor = dict(type='ContextNet', in_channels=341 + sum(densefeat_channels))
+        self.fmodule = FModule(in_channels=in_channels, corr_cfg=corr_cfg, warp_cfg=warp_cfg, act_cfg=act_cfg,
+                               scaled=scaled,
+                               densefeat_channels=densefeat_channels, post_processor=post_processor)
 
         self.centernet_head = CenterNetHead(
             in_channel=64,
@@ -324,35 +322,10 @@ class CenterNetWithCoAttention(pl.LightningModule):
         left_image_encoded_features = self.unet_model.encoder(batch["left_image"])
         right_image_encoded_features = self.unet_model.encoder(batch["right_image"])
 
-        # 从最后一层往倒数第二层
-        for i in range(len(self.post2_modules)):
-            (
-                left_image_encoded_features[-(i + 1)],
-                right_image_encoded_features[-(i + 1)],
-            ) = self.post2_modules[i](
-                left_image_encoded_features[-(i + 1)], right_image_encoded_features[-(i + 1)],
-                left2right_encoded_features[-(i + 1)], right2left_encoded_features[-(i + 1)])
-
-        a = len(self.post2_modules)
-        for i in range(len(self.post_modules)):
-            (
-                left_image_encoded_features[-(i + 1 + a)],
-                right_image_encoded_features[-(i + 1 + a)],
-                weighted_r_f,
-                weighted_l_f
-            ) = self.post_modules[i](
-                left_image_encoded_features[-(i + 1 + a)], right_image_encoded_features[-(i + 1 + a)],
-                left2right_encoded_features[-(i + 1 + a)], right2left_encoded_features[-(i + 1 + a)])
-
-        b = a + len(self.post_modules)
-        for i in range(len(self.post3_modules)):
-            (
-                left_image_encoded_features[-(i + 1 + b)],
-                right_image_encoded_features[-(i + 1 + b)],
-            ) = self.post3_modules[i](
-                left_image_encoded_features[-(i + 1 + b)], right_image_encoded_features[-(i + 1 + b)],
-                left2right_encoded_features[-(i + 1 + b)], right2left_encoded_features[-(i + 1 + b)],
-                weighted_r_f, weighted_l_f)
+        # left
+        left_image_encoded_features = self.fmodule(left_image_encoded_features, right2left_encoded_features)
+        # right
+        right_image_encoded_features = self.fmodule(right_image_encoded_features, left2right_encoded_features)
 
         left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)
         right_image_decoded_features = self.unet_model.decoder(*right_image_encoded_features)
