@@ -33,6 +33,39 @@ class PostModule(nn.Module):
         return left_attended_features, right_attended_features, weighted_r_f, weighted_l_f
 
 
+class FuseChannelsModule(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.homo = HomoLayer()
+        # 利用flow中的ccl
+        self.layer = CCLayer()
+
+    def forward(self, features):
+        # 将通道数拆成一半，前面一半是原图feature，后面一半是对齐后图的feature
+        B, C, _, _ = features.size()
+        C = int(C / 2)
+        feature_1 = features[:, :C, :, :]
+        feature_2 = features[:, C:, :, :]
+        # 获取diff信息
+        diff = self.homo(feature_1, feature_2)
+        # 我是把diff当成权重呢？还是当成普通的信息
+        # ---------------如果是权重--------------------：
+        # 1. diff通道数变为1
+        # 1.1 使用max -- 一般吧
+        # diff_weight = torch.max(diff, 1, keepdim=True).values
+        # 1.2 使用平均值 --- 效果比max 还要差
+        # diff_weight = torch.mean(diff, 1, keepdim=True)
+        # 2. 将原图feature乘以权重--将half_dim = True 即可
+        # feature = torch.mul(feature_1,diff_weight)
+        # ---------------如果是普通信息------------------：
+        # 1.进行简单拼接 -- 只需要将fix_dim = True 即可 --- 最好的结果
+        feature = torch.cat((feature_1, diff), 1)
+        # 2.进行+ -- 将half_dim = True 即可 -- 第二最好的结果
+        # feature = torch.add(feature_1, diff)  # (B,C/2,h,w)
+        # 返回
+        return feature
+
+
 class HomoLayer(nn.Module):
     def __init__(self):
         super().__init__()
@@ -67,7 +100,7 @@ class FModule(nn.Module):
         flow_pred, diffs = self.getDiff(feat1, feat2)
         level_keys = list(feat1.keys())
         level_keys.sort()
-        level_keys= level_keys[1:]  # level2-level6
+        level_keys = level_keys[1:]  # level2-level6
         for level in level_keys[::-1]:
             if level == 'level6':
                 diff = feat1[level] - feat2[level]

@@ -20,9 +20,10 @@ from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
 from utils.general import preprocessing_images
 import models.homo as homo
-from models.middle import PostModule, FModule
+from models.middle import PostModule, FModule, FuseChannelsModule
 
 plt.ioff()
+
 
 class CenterNetWithCoAttention(pl.LightningModule):
     def __init__(self, args):
@@ -39,35 +40,25 @@ class CenterNetWithCoAttention(pl.LightningModule):
             args.encoder,
             decoder_channels=(256, 256, 128, 128, 64),
             encoder_depth=5,
+            in_channels=6,
             encoder_weights="imagenet",
             num_coam_layers=number_of_coam_layers,
             decoder_attention_type=args.decoder_attention,
             disable_segmentation_head=True,
-            fix_dim=False,
+            fix_dim=True,
             able_customize_set=False,
             fuse=False,
+            half_dim=True,
             number_of_post_layers=number_of_post_layers,
             number_of_middle_layers=number_of_middle_layers,
             number_of_front_layers=number_of_front_layers,
             sizes=sizes,
         )
-        # 新加的
-        # resnet18[512,256,128,64,64]
-        # resnet50[2048,1024,512,256,64]
-
-        in_channels = dict(level6=81, level5=341, level4=213, level3=149)
-        # in_channels = dict(level6=81, level5=1109, level4=597, level3=341)
-        corr_cfg = dict(type='Correlation', max_displacement=4, padding=0)
-        warp_cfg = dict(type='Warp', align_corners=True, use_mask=True)
-        act_cfg = dict(type='LeakyReLU', negative_slope=0.1)
-        scaled = False
-        densefeat_channels = (256, 256, 128, 64)
-        # densefeat_channels = (1024, 1024, 512, 256)
-        post_processor = dict(type='ContextNet', in_channels=149 + sum(densefeat_channels))
-        # post_processor = dict(type='ContextNet', in_channels=341 + sum(densefeat_channels))
-        self.fmodule = FModule(in_channels=in_channels, corr_cfg=corr_cfg, warp_cfg=warp_cfg, act_cfg=act_cfg,
-                               scaled=scaled,
-                               densefeat_channels=densefeat_channels, post_processor=post_processor)
+        self.fusemodules = nn.ModuleList(
+            [
+                FuseChannelsModule() for i in range(number_of_coam_layers)
+            ]
+        )
 
         self.centernet_head = CenterNetHead(
             in_channel=64,
@@ -314,21 +305,31 @@ class CenterNetWithCoAttention(pl.LightningModule):
         l2r, _, r2l, _, _ = preprocessing_images(left_images, right_images)
         l2r = torch.stack(l2r, 0)
         r2l = torch.stack(r2l, 0)
+        # 将图片1与对齐后的图片2 进行拼接
+        imag_one = torch.concat((left_images, r2l), 1)
+        imag_two = torch.concat((right_images, l2r), 1)
 
-        # 用变化后的图片
-        left2right_encoded_features = self.unet_model.encoder(l2r)
-        right2left_encoded_features = self.unet_model.encoder(r2l)
+        # 将通道数为6的图片，放入到encoder里面
+        imag_one_encoded_features = self.unet_model.encoder(imag_one)
+        imag_two_encoded_features = self.unet_model.encoder(imag_two)
 
-        left_image_encoded_features = self.unet_model.encoder(batch["left_image"])
-        right_image_encoded_features = self.unet_model.encoder(batch["right_image"])
+        # 获取的feature进行channels划分--imag_one
+        for i in range(len(self.fusemodules)):
+            (
+                imag_one_encoded_features[-(i + 1)]
+            ) = self.fusemodules[i](
+                imag_one_encoded_features[-(i + 1)]
+            )
+        # 获取的feature进行channels划分--imag_two
+        for i in range(len(self.fusemodules)):
+            (
+                imag_two_encoded_features[-(i + 1)]
+            ) = self.fusemodules[i](
+                imag_two_encoded_features[-(i + 1)]
+            )
 
-        # left
-        left_image_encoded_features = self.fmodule(left_image_encoded_features, right2left_encoded_features)
-        # right
-        right_image_encoded_features = self.fmodule(right_image_encoded_features, left2right_encoded_features)
-
-        left_image_decoded_features = self.unet_model.decoder(*left_image_encoded_features)
-        right_image_decoded_features = self.unet_model.decoder(*right_image_encoded_features)
+        left_image_decoded_features = self.unet_model.decoder(*imag_one_encoded_features)
+        right_image_decoded_features = self.unet_model.decoder(*imag_two_encoded_features)
         return (
             self.centernet_head([left_image_decoded_features]),
             self.centernet_head([right_image_decoded_features]),
