@@ -24,6 +24,12 @@ from models.middle import PostModule, FModule, FuseChannelsModule
 
 plt.ioff()
 
+import cv2
+import utils.general as general
+import utils.alignment as algin
+from PIL import Image, PngImagePlugin
+from torchvision.transforms.functional import pil_to_tensor
+
 
 class CenterNetWithCoAttention(pl.LightningModule):
     def __init__(self, args):
@@ -48,7 +54,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
             fix_dim=True,
             able_customize_set=False,
             fuse=False,
-            half_dim=True,
+            half_dim=False,
             number_of_post_layers=number_of_post_layers,
             number_of_middle_layers=number_of_middle_layers,
             number_of_front_layers=number_of_front_layers,
@@ -302,9 +308,9 @@ class CenterNetWithCoAttention(pl.LightningModule):
     def forward(self, batch):
         left_images = batch['left_image']
         right_images = batch['right_image']
-        l2r, _, r2l, _, _ = preprocessing_images(left_images, right_images)
-        l2r = torch.stack(l2r, 0)
-        r2l = torch.stack(r2l, 0)
+        l2r = batch['left2right']
+        r2l = batch['right2left']
+
         # 将图片1与对齐后的图片2 进行拼接
         imag_one = torch.concat((left_images, r2l), 1)
         imag_two = torch.concat((right_images, l2r), 1)
@@ -368,10 +374,13 @@ def marshal_getitem_data(data, split):
 
     if len(image1_target_bboxes) != len(image2_target_bboxes) or len(image1_target_bboxes) == 0:
         return None
-
+    # 图片变化
+    image2_to_image1,image1_to_image2 = alignimage(data["image1"], data["image2"])
     return {
         "left_image": data["image1"],
         "right_image": data["image2"],
+        "left2right": image1_to_image2,
+        "right2left": image2_to_image1,
         "left_image_target_bboxes": image1_target_bboxes,
         "right_image_target_bboxes": image2_target_bboxes,
         "target_bbox_labels": torch.zeros(len(image1_target_bboxes)).long(),
@@ -381,6 +390,29 @@ def marshal_getitem_data(data, split):
             "batch_input_shape": data["image1"].shape[-2:],
         },
     }
+
+
+def alignimage(image1_tensor, image2_tensor):
+    # plt
+    image1_plt = general.tensor_to_PIL(image1_tensor)
+    image2_plt = general.tensor_to_PIL(image2_tensor)
+    # cv
+    image1_cv = cv2.cvtColor(np.asarray(image1_plt), cv2.COLOR_RGB2BGR)
+    image2_cv = cv2.cvtColor(np.asarray(image2_plt), cv2.COLOR_RGB2BGR)
+    # align the images
+    # scan -> reference
+    s2r, _, H = algin.alignImages(image1_cv, image2_cv)
+    inverH = torch.pinverse(torch.Tensor(H)).numpy()
+    h, w, channels = image2_cv.shape
+    # reference -> scan
+    r2s = cv2.warpPerspective(image2_cv, inverH, (w, h))
+
+    # 将cv转为tensor
+
+    image1_to_image2 = pil_to_tensor(Image.fromarray(cv2.cvtColor(s2r, cv2.COLOR_BGR2RGB))).float() / 255.0
+    image2_to_image1 = pil_to_tensor(Image.fromarray(cv2.cvtColor(r2s, cv2.COLOR_BGR2RGB))).float() / 255.0
+
+    return image2_to_image1, image1_to_image2
 
 
 def dataloader_collate_fn(batch):

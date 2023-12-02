@@ -18,7 +18,6 @@ import utils.general as general
 
 MAX_FEATURES = 1000
 GOOD_MATCH_PERCENT = 0.8
-MIN_MATCHES = 5
 
 def getDistance(point1,point2):
     distance = math.sqrt(math.pow((point1[0] - point2[0]), 2) + math.pow((point1[1] - point2[1]), 2))

@@ -104,13 +104,13 @@ if __name__ == "__main__":
     callbacks = [get_logging_callback_manager(configs)]
     if not configs.no_logging:
         logger = WandbLogger(
-            project="cyws_256_1gpu",
+            project="cyws_256_2gpu",
             id=configs.wandb_id,
             save_dir="/home/ygk/disk/pycharm_project/The-Change-You-Want-to-See-main/work",
             name=configs.experiment_name,
         )
-        # callbacks.append(ModelCheckpoint(monitor="val/overall_loss", mode="min", save_last=True))
-        callbacks.append(ModelCheckpoint(save_top_k=3, monitor="cocoval_AP", mode="max", save_last=True))
+        callbacks.append(ModelCheckpoint(monitor="val/overall_loss", mode="min",filename='{epoch:02d}-val_overall_loss{val/overall_loss:.2f}', save_last=True))
+        callbacks.append(ModelCheckpoint(save_top_k=2, monitor="cocoval_AP", mode="max", save_last=True))
         # callbacks.append(EarlyStopping(monitor='val/overall_loss', patience=15, mode='min'))
 
     trainer = None

@@ -38,7 +38,7 @@ class FuseChannelsModule(nn.Module):
         super().__init__()
         self.homo = HomoLayer()
         # 利用flow中的ccl
-        self.layer = CCLayer()
+        # self.layer = CCLayer()
 
     def forward(self, features):
         # 将通道数拆成一半，前面一半是原图feature，后面一半是对齐后图的feature
