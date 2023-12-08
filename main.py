@@ -47,6 +47,7 @@ def test(configs, model, logger, datamodule, checkpoint_path, callbacks=None):
     )
     tester.test(model=model, datamodule=datamodule, ckpt_path=checkpoint_path)
 
+
 def get_logging_callback_manager(args):
     if args.method == "centernet":
         from models.centernet_with_coam import WandbCallbackManager
@@ -54,6 +55,7 @@ def get_logging_callback_manager(args):
         return WandbCallbackManager(args)
 
     raise NotImplementedError(f"Given method ({args.method}) not implemented!")
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
@@ -109,8 +111,10 @@ if __name__ == "__main__":
             save_dir="/home/ygk/disk/pycharm_project/The-Change-You-Want-to-See-main/work",
             name=configs.experiment_name,
         )
-        callbacks.append(ModelCheckpoint(monitor="val/overall_loss", mode="min",filename='{epoch:02d}-val_overall_loss{val/overall_loss:.2f}', save_last=True))
-        callbacks.append(ModelCheckpoint(save_top_k=2, monitor="cocoval_AP", mode="max", save_last=True))
+        # callbacks.append(ModelCheckpoint(save_top_k=2, monitor="val/overall_loss", mode="min",
+        #                                  filename='{epoch:02d}-val_overall_loss{val/overall_loss:.2f}', save_last=True))
+        callbacks.append(ModelCheckpoint(save_top_k=4, monitor="cocoval_AP", mode="max",
+                                         filename='{epoch:02d}-ap{cocoval_AP:.2f}', save_last=True))
         # callbacks.append(EarlyStopping(monitor='val/overall_loss', patience=15, mode='min'))
 
     trainer = None

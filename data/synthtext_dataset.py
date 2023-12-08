@@ -20,7 +20,7 @@ class SynthTextDataset(Dataset):
         assert split == "test"
         self.split = split
         self.path_to_dataset = path_to_dataset
-        self.synthetic_images = h5py.File(os.path.join(path_to_dataset, "custom.h5"), "r")
+        self.synthetic_images = h5py.File(os.path.join(path_to_dataset, "synthtext-change.h5"), "r")
         self.image_transformation = image_transformation
         self.original_image_names, self.synthetic_image_names = self.get_paths_of_test_images()
         self.marshal_getitem_data = self.import_method_specific_functions(method)

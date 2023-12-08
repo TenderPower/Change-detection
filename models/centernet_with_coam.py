@@ -18,12 +18,13 @@ from models.coattention import CoAttentionModule
 # from segmentation_models_pytorch.unet.model import Unet
 from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
-from utils.general import preprocessing_images
 import models.homo as homo
 from models.middle import PostModule, FModule, FuseChannelsModule
 
 plt.ioff()
-
+from torchvision.ops import box_iou
+from torchvision.utils import save_image, draw_bounding_boxes
+import os
 import cv2
 import utils.general as general
 import utils.alignment as algin
@@ -375,7 +376,7 @@ def marshal_getitem_data(data, split):
     if len(image1_target_bboxes) != len(image2_target_bboxes) or len(image1_target_bboxes) == 0:
         return None
     # 图片变化
-    image2_to_image1,image1_to_image2 = alignimage(data["image1"], data["image2"])
+    image2_to_image1, image1_to_image2 = alignimage(data["image1"], data["image2"])
     return {
         "left_image": data["image1"],
         "right_image": data["image2"],
@@ -453,6 +454,7 @@ class WandbCallbackManager(pl.Callback):
         datamodule = DataModule(args)
         datamodule.setup()
         self.test_set_names = datamodule.test_dataset_names
+        self.index = 0
 
     @rank_zero_only
     def on_fit_start(self, trainer, model):

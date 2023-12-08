@@ -17,9 +17,9 @@ from PIL import Image
 import utils.general as general
 
 MAX_FEATURES = 1000
-GOOD_MATCH_PERCENT = 0.8
+GOOD_MATCH_PERCENT = 0.2
 
-def getDistance(point1,point2):
+def getDistance(point1, point2):
     distance = math.sqrt(math.pow((point1[0] - point2[0]), 2) + math.pow((point1[1] - point2[1]), 2))
     return distance
 
@@ -33,10 +33,10 @@ def getaverg(data):
 
 
 def get_keypoints(image_scan, image_reference):
-    record= {}
+    record = {}
     no_descr = True
-    #Convert images to grayscale
-    #PS: The path does not contain Chinese.
+    # Convert images to grayscale
+    # PS: The path does not contain Chinese.
     image1_Gray = cv2.cvtColor(image_scan, cv2.COLOR_BGR2GRAY)
     image2_Gray = cv2.cvtColor(image_reference, cv2.COLOR_BGR2GRAY)
 
@@ -44,6 +44,13 @@ def get_keypoints(image_scan, image_reference):
     orb = cv2.ORB_create(MAX_FEATURES)
     keypoints1, descriptors1 = orb.detectAndCompute(image1_Gray, None)
     keypoints2, descriptors2 = orb.detectAndCompute(image2_Gray, None)
+
+    # 创建BEBLID描述符
+    beblid = cv2.xfeatures2d.BEBLID_create(0.75)
+
+    # 使用BEBLID计算描述符
+    descriptors1 = beblid.compute(image1_Gray, keypoints1)[1]
+    descriptors2 = beblid.compute(image2_Gray, keypoints2)[1]
 
     # Match features.
     # matcher = cv2.DescriptorMatcher_create(cv2.DESCRIPTOR_MATCHER_BRUTEFORCE_HAMMING)
@@ -91,14 +98,14 @@ def alignImages(image_scan, image_reference):
     :param image_reference:
     :return:
     '''
-    H_default= np.array([[1., 0, 0], [0, 1, 0], [0, 0, 1]])
+    H_default = np.array([[1., 0, 0], [0, 1, 0], [0, 0, 1]])
     keypoints_dict, criterion_perspect = get_keypoints(image_scan, image_reference)
     # Avoiding the occurrence of the phenomena that ORB can't find the descr
-    if criterion_perspect :
+    if criterion_perspect:
         return image_scan, image_reference, H_default
 
-    #Get keypoints of the two images
-    #and perform perspective transformation
+    # Get keypoints of the two images
+    # and perform perspective transformation
     points1 = keypoints_dict['points1']
     points2 = keypoints_dict['points2']
     if len(points1) > 5 or len(points2) > 5:
@@ -112,28 +119,29 @@ def alignImages(image_scan, image_reference):
             finally_image_scan = perspective_image_scan
         else:
             finally_image_scan = image_scan
+        # # -------------------------------------Showing----------------------------------
+        # # Showing the transformed images
+        # draw_params = dict(
+        #     matchColor=(0, 255, 0),
+        #     singlePointColor=None,
+        #     matchesMask=mask.ravel().tolist(),
+        #     flags=2
+        # )
+        # # Showing the keypoints on the images
+        # img3 = cv2.drawMatches(image_scan, keypoints_dict['kp1'], image_reference, keypoints_dict['kp2'],
+        #                        keypoints_dict["matches"], None, **draw_params)
+        # plt.imshow(img3, 'gray')
+        # plt.show()
+        # # ------------------------------------------END---------------------------------
     else:
         finally_image_scan = image_scan
-    # Showing the transformed images
-    # draw_params = dict(
-    #     matchColor = (0, 255, 0),
-    #     singlePointColor = None,
-    #     matchesMask = mask.ravel().tolist(),
-    #     flags = 2
-    # )
-    # Showing the keypoints on the images
-    # img3 = cv2.drawMatches(image_scan, keypoints_dict['kp1'], image_reference, keypoints_dict['kp2'], keypoints_dict["matches"],None,**draw_params)
-    # plt.imshow(img3, 'gray')
+    # # -------------------------------------Ploting the image----------------------------------
+    # images = [image_scan, image_reference, finally_image_scan, ]
+    # for i in range(1, 4):
+    #     plt.subplot(1, 3, i)
+    #     plt.imshow(images[i - 1])
     # plt.show()
-    """
-    images=[image_scan,image_reference,perspective_image_scan,]
-
-    for i in range(1,4):
-        plt.subplot(1,3,i)
-        plt.imshow(images[i-1])
-
-    plt.show()
-    """
+    # # -------------------------------------END----------------------------------
     return finally_image_scan, image_reference, H_default
 
 def image_procession(images_scan, images_reference):
@@ -157,37 +165,40 @@ def image_procession(images_scan, images_reference):
     batchsize = len(images_scan)
     im_scan2refer = []
     im_refer2refer = []
-    im_refer2scan= []
+    im_refer2scan = []
     transfH = []
     invertransfH = []
     # im_or = []
     for i in range(batchsize):
         # Convert Tesnor to Cv
-        img_scan_plt =  general.tensor_to_PIL(images_scan[i])
+        img_scan_plt = general.tensor_to_PIL(images_scan[i])
         img_reference_plt = general.tensor_to_PIL(images_reference[i])
         image_scan_cv = cv2.cvtColor(numpy.asarray(img_scan_plt), cv2.COLOR_RGB2BGR)
         image_reference_cv = cv2.cvtColor(numpy.asarray(img_reference_plt), cv2.COLOR_RGB2BGR)
         # Align the images
-        s2r, r2r, H = alignImages(image_scan_cv,image_reference_cv)
+        s2r, r2r, H = alignImages(image_scan_cv, image_reference_cv)
         inverH = torch.pinverse(torch.Tensor(H)).numpy()
         # add
         h, w, channels = image_scan_cv.shape
         r2s = cv2.warpPerspective(image_reference_cv, inverH, (w, h))
-        im_scan2refer.append((pil_to_tensor(Image.fromarray(cv2.cvtColor(s2r, cv2.COLOR_BGR2RGB))).float()/255.0).cuda())
-        im_refer2refer.append((pil_to_tensor(Image.fromarray(cv2.cvtColor(r2r, cv2.COLOR_BGR2RGB))).float()/255.0).cuda())
-        im_refer2scan.append((pil_to_tensor(Image.fromarray(cv2.cvtColor(r2s, cv2.COLOR_BGR2RGB))).float()/255.0).cuda())
+        im_scan2refer.append(
+            (pil_to_tensor(Image.fromarray(cv2.cvtColor(s2r, cv2.COLOR_BGR2RGB))).float() / 255.0).cuda())
+        im_refer2refer.append(
+            (pil_to_tensor(Image.fromarray(cv2.cvtColor(r2r, cv2.COLOR_BGR2RGB))).float() / 255.0).cuda())
+        im_refer2scan.append(
+            (pil_to_tensor(Image.fromarray(cv2.cvtColor(r2s, cv2.COLOR_BGR2RGB))).float() / 255.0).cuda())
         transfH.append(torch.Tensor(H))
         invertransfH.append(torch.Tensor(inverH))
 
-    transfH_tensor = torch.stack(transfH, dim = 0).cuda()
-    invertransfH_tensor = torch.stack(invertransfH, dim = 0).cuda()
+    transfH_tensor = torch.stack(transfH, dim=0).cuda()
+    invertransfH_tensor = torch.stack(invertransfH, dim=0).cuda()
 
     return im_scan2refer, im_refer2refer, im_refer2scan, transfH_tensor, invertransfH_tensor
 
 
-def resize_based_on_image_reference(im_scan,w,h):
-    dim = (w,h) #(w,h)
-    resized_im_scan = cv2.resize(im_scan,dim,interpolation=cv2.INTER_CUBIC)
+def resize_based_on_image_reference(im_scan, w, h):
+    dim = (w, h)  # (w,h)
+    resized_im_scan = cv2.resize(im_scan, dim, interpolation=cv2.INTER_CUBIC)
     # print('resized_im_scan：{}'.format(resized_im_scan.shape))  #(430, 640, 3)
     return resized_im_scan
 
@@ -203,8 +214,9 @@ def isAline(points: list[list[int]]):
     x3, y3 = points[2][0], points[2][1]
     return (x2 - x1) * (y3 - y2) == (y2 - y1) * (x3 - x2)
 
+
 def show_imag_plt(images, length):
-    for i in range(1, length+1):
+    for i in range(1, length + 1):
         plt.subplot(1, length, i)
         plt.imshow(images[i - 1])
     plt.show()

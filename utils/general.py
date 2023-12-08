@@ -12,7 +12,6 @@ from easydict import EasyDict
 from einops import rearrange
 from PIL import Image
 from pycocotools import mask as coco_mask_utils
-from utils.alignment import image_procession
 from torchvision.transforms import transforms
 
 def get_easy_dict_from_yaml_file(path_to_yaml_file):
@@ -73,13 +72,6 @@ def tensor_to_PIL(tensor):
     unloader = transforms.ToPILImage()
     image = unloader(image)
     return image
-
-def preprocessing_images(image1, image2):
-    """
-    # preprocessing the dataset
-    """
-    return image_procession(images_scan= image1, images_reference= image2)
-
 
 def perspective_transform_masks(infor, transfor, img_sizes, proba_threshold = .55, criterion='masks'):
     """

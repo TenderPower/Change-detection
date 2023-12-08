@@ -46,6 +46,25 @@ datasets:
         split: "test"
         method: "centernet"
         image_transformation: "affine"
+    - name: synthtext
+      class: SynthTextDataset
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/synthtext-change
+        split: "test"
+        method: "centernet"
+    - name: std
+      class: StdDataset
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/std/resized_images
+        split: "test"
+        method: "centernet"
+        image_transformation: "identity"
+    - name: kubric
+      class: KubricChange
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/kubric-change
+        split: "test"
+        method: "centernet"
     - name: coco_test_all
       class: ConcatDataset
       datasets:
