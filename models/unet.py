@@ -2,12 +2,7 @@ from typing import List, Optional, Union
 import numpy
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from segmentation_models_pytorch.base import ClassificationHead, SegmentationHead, SegmentationModel
-from segmentation_models_pytorch.base import modules as md
-from segmentation_models_pytorch.encoders import get_encoder
 from segmentation_models_pytorch.unet.model import Unet, CenterBlock, DecoderBlock
-from models.middle import FuseChannelsModule
 
 
 class Unet(Unet):
@@ -50,7 +45,7 @@ class Unet(Unet):
             fix_dim=fix_dim,
             able_customize_set=able_customize_set,
             fuse=fuse,
-            half_dim = half_dim,
+            half_dim=half_dim,
             number_of_post_layers=number_of_post_layers,
             number_of_middle_layers=number_of_middle_layers,
             number_of_front_layers=number_of_front_layers,
@@ -92,7 +87,7 @@ class UnetDecoder(nn.Module):
         encoder_channels = encoder_channels[::-1]  # reverse channels to start from head of encoder
         head_channels = encoder_channels[0]
         if half_dim:
-            head_channels = head_channels//2
+            head_channels = head_channels // 2
         if fix_dim:
             a = 0
             b = 1
@@ -126,7 +121,7 @@ class UnetDecoder(nn.Module):
             skip_channels = list(encoder_channels[1:]) + [0]
             for i in range(0, num_coam_layers - 1):  # i的范围在[0,num_coam_layers-1)
                 if half_dim:
-                    skip_channels[i] = skip_channels[i]//2
+                    skip_channels[i] = skip_channels[i] // 2
                 else:
                     skip_channels[i] *= b
         out_channels = decoder_channels
@@ -166,30 +161,3 @@ class UnetDecoder(nn.Module):
 
         return x
 
-
-if __name__ == '__main__':
-    unet_model = Unet(
-        "resnet18",
-        decoder_channels=(256, 256, 128, 128, 64),
-        encoder_depth=5,
-        in_channels=6,
-        encoder_weights="imagenet",
-        num_coam_layers=5,
-        decoder_attention_type="scse",
-        disable_segmentation_head=True,
-        fix_dim=True,
-        half_dim=True,
-        able_customize_set=False,
-        fuse=False,
-    )
-    modules = nn.ModuleList([FuseChannelsModule() for i in range(5)])
-    a = torch.randn((12, 6, 256, 256))
-
-    b = unet_model.encoder(a)
-    for i in range(len(modules)):
-        (
-            b[-(i + 1)]
-        ) = modules[i](
-            b[-(i + 1)]
-        )
-    c = unet_model.decoder(*b)

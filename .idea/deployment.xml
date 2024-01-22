@@ -27,7 +27,7 @@
       <paths name="ygk@172.16.150.205:22 password (2)">
         <serverdata>
           <mappings>
-            <mapping deploy="/disk/ygk/pycharm_project/The-Change-You-Want-to-See-temporary" local="$PROJECT_DIR$" />
+            <mapping deploy="/disk/ygk/pycharm_project/The-Change-You-Want-to-See-main" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

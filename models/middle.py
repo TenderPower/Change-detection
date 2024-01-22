@@ -8,203 +8,125 @@ import models.CCL_pytorch as ccl
 import models.net as net
 
 
-class PostModule(nn.Module):
-    def __init__(self, channels=2048):
+class FuseChannelsModuleAtten(nn.Module):
+    def __init__(self, input_dim, criterion):
         super().__init__()
-        self.layer = CCLayer()
-        self.homolayer = HomoLayer()
-        self.cnn = nn.Conv2d(in_channels=1, out_channels=channels, kernel_size=1)
+        if criterion == 4:
+            self.getDiffer = getDifference()
+        else:
+            self.getDiffer = getBothDifferences(input_dim)
 
-    def forward(self, left_features, right_features, left2right_features, right2left_features):
-        weighted_r_f = self.layer(left_features, right_features)
-        weighted_l_f = self.layer(right_features, left_features)
-        # 对weight进行CNN，方便与homo融合
-        weighted_r_f_c = self.cnn(weighted_r_f)
-        weighted_l_f_c = self.cnn(weighted_l_f)
-        # homo
-        weighted_r_h = self.homolayer(right_features, left2right_features)
-        weighted_l_h = self.homolayer(left_features, right2left_features)
-        # homo+weight_cnn -- 新思路中的思路一 --效果比*好
-        weighted_l = weighted_l_h + weighted_r_f_c
-        weighted_r = weighted_r_h + weighted_l_f_c
-        left_attended_features = torch.cat((left_features, weighted_l), 1)
-        right_attended_features = torch.cat((right_features, weighted_r), 1)
-        # 不进行上采样
-        return left_attended_features, right_attended_features, weighted_r_f, weighted_l_f
+    def forward(self, left_features, right_features):
+        leftAttendedFeatures = self.getDiffer(left_features, right_features)
+        rightAttendedFeatures = self.getDiffer(right_features, left_features)
+        return leftAttendedFeatures, rightAttendedFeatures
 
 
-class FuseChannelsModule(nn.Module):
+class getBothDifferences(nn.Module):
+    def __init__(self, input_dim):
+        super().__init__()
+        self.homo = HomoLayer()
+        self.crossAttentionLayer = CoAttentionLayer(input_dim, input_dim // 4)
+
+    def forward(self, query_features, reference_features):
+        B, C, h, _ = query_features.size()
+        C = C // 2
+        # 原图1
+        queryOriginFeature = query_features[:, :C, :, :]
+        queryTransFeature = query_features[:, C:, :, :]
+        # 原图2
+        referenceOriginFeature = reference_features[:, :C, :, :]
+        # 进行cross attention
+        crossDiff = self.crossAttentionLayer(queryOriginFeature, referenceOriginFeature)
+        # 进行- 获取differ
+        reduceDiff = self.homo(queryOriginFeature, queryTransFeature)
+        # Differ 合并
+        diff = crossDiff + reduceDiff
+        # 原图和Differ拼接
+        return torch.cat((queryOriginFeature, diff), 1)
+
+
+class getDifference(nn.Module):
     def __init__(self):
         super().__init__()
         self.homo = HomoLayer()
-        # 利用flow中的ccl
-        # self.layer = CCLayer()
 
-    def forward(self, features):
-        # 将通道数拆成一半，前面一半是原图feature，后面一半是对齐后图的feature
-        B, C, _, _ = features.size()
+    def forward(self, query_features, *features):
+        B, C, h, _ = query_features.size()
         C = int(C / 2)
-        feature_1 = features[:, :C, :, :]
-        feature_2 = features[:, C:, :, :]
-        # 获取diff信息
-        diff = self.homo(feature_1, feature_2)
-        # 我是把diff当成权重呢？还是当成普通的信息
-        # ---------------如果是权重--------------------：
-        # 1. diff通道数变为1
-        # 1.1 使用max -- 一般吧
-        # diff_weight = torch.max(diff, 1, keepdim=True).values
-        # 1.2 使用平均值 --- 效果比max 还要差
-        # diff_weight = torch.mean(diff, 1, keepdim=True)
-        # 2. 将原图feature乘以权重--将half_dim = True 即可
-        # feature = torch.mul(feature_1,diff_weight)
-        # ---------------如果是普通信息------------------：
-        # 1.进行简单拼接 -- 只需要将fix_dim = True 即可 --- 最好的结果
-        feature = torch.cat((feature_1, diff), 1)
-        # 2.进行+ -- 将half_dim = True 即可 -- 第二最好的结果
-        # feature = torch.add(feature_1, diff)  # (B,C/2,h,w)
-        # 返回
-        return feature
+        queryOriginFeature = query_features[:, :C, :, :]
+        queryTransFeature = query_features[:, C:, :, :];
+        # 进行 - 获取differ
+        reduceDiff = self.homo(queryOriginFeature, queryTransFeature)
+        # 原图和Differ拼接
+        return torch.cat((queryOriginFeature, reduceDiff), 1)
 
 
 class HomoLayer(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, feature1, feature2):
-        correlation = feature1 - feature2
-        return correlation
+    def forward(self, query_features, reference_features):
+        correlation = query_features - reference_features
+        weights = nn.Softmax(dim=1)(correlation)
+        output = torch.einsum('bcij,bcij->bcij', reference_features, weights)  # [batch_size, c, height, width]
+        return output
 
 
-class CCLayer(nn.Module):
-    def __init__(self):
+class Self_Attn(nn.Module):
+    """ Self attention Layer"""
+
+    def __init__(self, in_dim):
+        super(Self_Attn, self).__init__()
+        self.chanel_in = in_dim
+        # self.activation = activation
+
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+        # 一个可学习的参数 gamma，它用于控制自注意力的强度
+        self.gamma = nn.Parameter(torch.zeros(1))
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x):
+        """
+            inputs :
+                x : input feature maps( B X C X W X H)
+            returns :
+                out : self attention value + input feature
+                attention: B X N X N (N is Width*Height)
+        """
+        m_batchsize, C, width, height = x.size()
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)  # B X CX(N)
+        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)  # B X C x (*W*H)
+        energy = torch.bmm(proj_query, proj_key)  # transpose check
+        attention = self.softmax(energy)  # BX (N) X (N)
+        proj_value = self.value_conv(x).view(m_batchsize, -1, width * height)  # B X C X N
+
+        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
+        out = out.view(m_batchsize, C, width, height)
+
+        out = self.gamma * out + x
+        return out
+
+
+# Cross attention
+class CoAttentionLayer(nn.Module):
+    def __init__(self, input_channels=2048, hidden_channels=256):
         super().__init__()
+        self.reference_dimensionality_reduction = nn.Conv2d(
+            input_channels, hidden_channels, kernel_size=1, stride=1, padding=0, bias=True
+        )
+        self.query_dimensionality_reduction = nn.Conv2d(
+            input_channels, hidden_channels, kernel_size=1, stride=1, padding=0, bias=True
+        )
 
     def forward(self, query_features, reference_features):
-        c_probability = ccl.CCL(query_features, reference_features)
-        return c_probability
-
-
-# 新模型，输入：对齐后的图片对，输出differ 和 flow
-
-class FModule(nn.Module):
-    def __init__(self, in_channels, corr_cfg, warp_cfg, act_cfg, scaled, densefeat_channels, post_processor):
-        super().__init__()
-        self.getDiff = CustomizedFlow(in_channels=in_channels, corr_cfg=corr_cfg, warp_cfg=warp_cfg, act_cfg=act_cfg,
-                                      scaled=scaled, densefeat_channels=densefeat_channels,
-                                      post_processor=post_processor)
-
-    def forward(self, feat_1: List[torch.Tensor], feat_2: List[torch.Tensor]):
-        feat1 = {'level' + str(i): feat_1[i - 1] for i in range(1, 7)}
-        feat2 = {'level' + str(i): feat_2[i - 1] for i in range(1, 7)}
-
-        flow_pred, diffs = self.getDiff(feat1, feat2)
-        level_keys = list(feat1.keys())
-        level_keys.sort()
-        level_keys = level_keys[1:]  # level2-level6
-        for level in level_keys[::-1]:
-            if level == 'level6':
-                diff = feat1[level] - feat2[level]
-                feat1[level] = torch.cat((feat1[level], diff), 1)
-            else:
-                feat1[level] = torch.cat((feat1[level], diffs[level]), 1)
-
-        # 将Dict 转为 List
-        image_feat = list(feat1.values())
-        return image_feat
-
-
-class CustomizedFlow(PWCNetDecoder):
-    def __init__(self,
-                 in_channels: Dict[str, int],
-                 densefeat_channels: Sequence[int] = (128, 128, 96, 64, 32),
-                 flow_div: float = 20.,
-                 corr_cfg: dict = dict(type='Correlation', max_displacement=4),
-                 scaled: bool = False,
-                 warp_cfg: dict = dict(type='Warp', align_corners=True),
-                 conv_cfg: Optional[dict] = None,
-                 norm_cfg: Optional[dict] = None,
-                 act_cfg: dict = dict(type='LeakyReLU', negative_slope=0.1),
-                 post_processor: dict = None,
-                 flow_loss: Optional[dict] = None,
-                 init_cfg: Optional[Union[list, dict]] = None) -> None:
-
-        super().__init__(in_channels, densefeat_channels, flow_div, corr_cfg, scaled, warp_cfg, conv_cfg, norm_cfg,
-                         act_cfg, post_processor, flow_loss, init_cfg)
-        self.upflow = nn.ConvTranspose2d(
-            2, 2, kernel_size=4, stride=2, padding=1
-        )
-        self.finalevel = "level2"
-
-    def forward(self, feat1: Dict[str, torch.Tensor],
-                feat2: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Forward function for PWCNetDecoder.
-
-         Args:
-             feat1 (Dict[str, Tensor]): The feature pyramid from the first
-                 image.
-             feat2 (Dict[str, Tensor]): The feature pyramid from the second
-                 image.
-
-         Returns:
-             Dict[str, Tensor]: The predicted multi-levels optical flow.
-         """
-
-        flow_pred = dict()
-        flow = None
-        upflow = None
-        upfeat = None
-        diffs = dict()
-        for level in self.flow_levels[::-1]:
-            _feat1, _feat2 = feat1[level], feat2[level]
-
-            if level == self.start_level:
-                corr_feat = self.corr_block(_feat1, _feat2)
-            else:
-                warp_feat = self.warp(_feat2, upflow * self.multiplier[level])
-                diff = _feat1 - warp_feat
-                diffs[level] = diff
-                corr_feat_ = self.corr_block(_feat1, warp_feat)
-                corr_feat = torch.cat((corr_feat_, _feat1, upflow, upfeat),
-                                      dim=1)
-
-            flow, feat, upflow, upfeat = self.decoders[level](corr_feat)
-
-            flow_pred[level] = flow
-
-        if self.post_processor is not None:
-            post_flow = self.post_processor(feat)
-            flow_pred[self.end_level] = flow_pred[self.end_level] + post_flow
-
-        # 最终的flow进行up，然后减
-        _feat1, _feat2 = feat1[self.finalevel], feat2[self.finalevel]
-        final_level_upflow = self.upflow(flow_pred[self.end_level])
-        warp_feat = self.warp(_feat2, final_level_upflow)
-        diff = _feat1 - warp_feat
-        diffs[self.finalevel] = diff
-        return flow_pred, diffs
-
-
-if __name__ == '__main__':
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # 下面的都是resnet50的
-    a1 = torch.randn(14, 3, 256, 256).cuda()
-    a2 = torch.randn(14, 64, 128, 128).cuda()
-    a3 = torch.randn(14, 256, 64, 64).cuda()
-    a4 = torch.randn(14, 512, 32, 32).cuda()
-    a5 = torch.randn(14, 1024, 16, 16).cuda()
-    a6 = torch.randn(14, 2048, 8, 8).cuda()
-    a = [a1, a2, a3, a4, a5, a6]
-    in_channels = dict(level6=81, level5=1109, level4=597, level3=341)
-    corr_cfg = dict(type='Correlation', max_displacement=4, padding=0)
-    warp_cfg = dict(type='Warp', align_corners=True, use_mask=True)
-    act_cfg = dict(type='LeakyReLU', negative_slope=0.1)
-    scaled = False
-    densefeat_channels = (1024, 1024, 512, 256)
-    post_processor = dict(type='ContextNet', in_channels=341 + sum(densefeat_channels))
-    model = FModule(in_channels=in_channels, corr_cfg=corr_cfg, warp_cfg=warp_cfg, act_cfg=act_cfg,
-                    scaled=scaled,
-                    densefeat_channels=densefeat_channels, post_processor=post_processor)
-
-    model = model.to(device)
-    flow = model(a, a)
-    print("over")
+        Q = self.query_dimensionality_reduction(query_features)
+        K = self.reference_dimensionality_reduction(reference_features)
+        V = rearrange(reference_features, "b c h w -> b c (h w)")
+        attention_map = torch.einsum("bcij,bckl->bijkl", Q, K)
+        attention_map = rearrange(attention_map, "b h1 w1 h2 w2 -> b h1 w1 (h2 w2)")
+        attention_map = nn.Softmax(dim=3)(attention_map)
+        attended_features = torch.einsum("bijp,bcp->bcij", attention_map, V)
+        return attended_features

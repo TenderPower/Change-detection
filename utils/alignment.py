@@ -1,6 +1,7 @@
 import cv2
 import numpy
 import numpy as np
+import os
 import random
 import matplotlib.pyplot as plt
 from copy import deepcopy
@@ -12,24 +13,12 @@ from shapely.validation import make_valid
 from torchvision.ops import masks_to_boxes
 from torchvision.transforms.functional import pil_to_tensor
 import math
-
+from torchvision.utils import save_image, draw_bounding_boxes
 from PIL import Image
 import utils.general as general
 
-MAX_FEATURES = 1000
-GOOD_MATCH_PERCENT = 0.2
-
-def getDistance(point1, point2):
-    distance = math.sqrt(math.pow((point1[0] - point2[0]), 2) + math.pow((point1[1] - point2[1]), 2))
-    return distance
-
-def getmedian(data):
-    data.sort()
-    half = len(data) // 2
-    return (data[half] + data[~half]) / 2
-
-def getaverg(data):
-    return np.average(data)
+MAX_FEATURES = 10000
+GOOD_MATCH_PERCENT = 1
 
 
 def get_keypoints(image_scan, image_reference):
@@ -41,20 +30,35 @@ def get_keypoints(image_scan, image_reference):
     image2_Gray = cv2.cvtColor(image_reference, cv2.COLOR_BGR2GRAY)
 
     # Detect ORB features and compute descriptors.
-    orb = cv2.ORB_create(MAX_FEATURES)
+    orb = cv2.ORB.create(MAX_FEATURES, scaleFactor=1.2, nlevels=6, edgeThreshold=15, patchSize=15,
+                         scoreType=cv2.ORB_HARRIS_SCORE)
     keypoints1, descriptors1 = orb.detectAndCompute(image1_Gray, None)
     keypoints2, descriptors2 = orb.detectAndCompute(image2_Gray, None)
 
-    # 创建BEBLID描述符
-    beblid = cv2.xfeatures2d.BEBLID_create(0.75)
+    # 使用SIFT
+    '''
+    nfeatures：指定要提取的特征点的最大数量，默认为0，表示提取所有特征点。
 
-    # 使用BEBLID计算描述符
-    descriptors1 = beblid.compute(image1_Gray, keypoints1)[1]
-    descriptors2 = beblid.compute(image2_Gray, keypoints2)[1]
+    nOctaveLayers：指定每组金字塔中的层数，默认为3。增加层数可以提高特征的尺度不变性，但也会增加计算量。
 
+    contrastThreshold：指定特征点的主要方向计算时的对比度阈值。默认为0.04，较高的值将过滤掉较弱的特征点。
+
+    edgeThreshold：指定特征点的边缘阈值。默认为10，该值越大，过滤掉的边缘特征点越多。
+
+    sigma：指定高斯金字塔的初始尺度，默认为1.6。
+    '''
+    # sift = cv2.SIFT.create(nfeatures=0, nOctaveLayers=3, contrastThreshold=0.02, edgeThreshold=5, sigma=1.6)
+    # keypoints1, descriptors1 = sift.detectAndCompute(image1_Gray, None)
+    # keypoints2, descriptors2 = sift.detectAndCompute(image2_Gray, None)
+
+    # # -------------------绘制关键点--------------------------------------------------------
+    # # 使用cv2.drawKeypoints()函数绘制关键点
+    # img1 = cv2.drawKeypoints(image1_Gray, keypoints1, None, color=(0, 255, 0), flags=0)
+    # img2 = cv2.drawKeypoints(image2_Gray, keypoints2, None, color=(0, 255, 0), flags=0)
+    # # -------------------END------------------------------------------------------------
     # Match features.
-    # matcher = cv2.DescriptorMatcher_create(cv2.DESCRIPTOR_MATCHER_BRUTEFORCE_HAMMING)
-    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+    # matcher = cv2.FlannBasedMatcher(indexParams=dict(algorithm=0, trees=5), searchParams=dict(checks=100))
     """
     matches为数据类型为list，包含了所匹配的特征点，list中每个元素的数据类型为DMatch。
     DMatch的数据结构包括：queryIdx、trainIdx、distance
@@ -63,16 +67,32 @@ def get_keypoints(image_scan, image_reference):
     distance：代表这一对匹配的特征点描述符的欧式距离，数值越小也就说明俩个特征点越相近
     """
     if descriptors2 is None or descriptors1 is None:
+        # return record, no_descr, img1, img2
         return record, no_descr
     else:
         no_descr = False
-        # ---Using the  Brute-Force matcher---
+
+        # ---------------Using the  Brute-Force matcher------------------------------------
         matches = matcher.match(descriptors1, descriptors2, None)
         # Sort matches by score 升
         matches = sorted(matches, key=lambda x: x.distance, reverse=False)
         # Remove not so good matches
         numGoodMatches = int(len(matches) * GOOD_MATCH_PERCENT)
         good_matches = matches[:numGoodMatches]
+        # -----------------END---------------------------------------------------------------
+
+        # # --------------Using the KNN matcher------------------------------------------------
+        # try:
+        #     knn_matches = matcher.knnMatch(descriptors1, descriptors2, k=2)
+        #     good_matches = []
+        #     for m, n in knn_matches:
+        #         if m.distance < 0.7 * n.distance:
+        #             good_matches.append(m)
+        # except Exception as e:
+        #     # return record, True, img1, img2
+        #     return record, True
+        # # -----------------END---------------------------------------------------------------
+
         # Extract location of good matches
         points1 = np.zeros((len(good_matches), 2), dtype=np.float32)
         points2 = np.zeros((len(good_matches), 2), dtype=np.float32)
@@ -88,6 +108,7 @@ def get_keypoints(image_scan, image_reference):
         record['kp1'] = keypoints1
         record['kp2'] = keypoints2
 
+        # return record, no_descr, img1, img2
         return record, no_descr
 
 
@@ -99,6 +120,7 @@ def alignImages(image_scan, image_reference):
     :return:
     '''
     H_default = np.array([[1., 0, 0], [0, 1, 0], [0, 0, 1]])
+    # keypoints_dict, criterion_perspect, im1, im2 = get_keypoints(image_scan, image_reference)
     keypoints_dict, criterion_perspect = get_keypoints(image_scan, image_reference)
     # Avoiding the occurrence of the phenomena that ORB can't find the descr
     if criterion_perspect:
@@ -108,10 +130,10 @@ def alignImages(image_scan, image_reference):
     # and perform perspective transformation
     points1 = keypoints_dict['points1']
     points2 = keypoints_dict['points2']
+    # img3 = image_reference
     if len(points1) > 5 or len(points2) > 5:
         # Homography
-        # M_H, mask = cv2.findHomography(points1, points2, cv2.RANSAC, ransacReprojThreshold=3.0)
-        M_H, mask = cv2.findHomography(points1, points2, cv2.RANSAC, 5.0)
+        M_H, mask = cv2.findHomography(points1, points2, cv2.RANSAC, ransacReprojThreshold=3)
         if M_H is not None:
             h, w, channels = image_reference.shape
             perspective_image_scan = cv2.warpPerspective(image_scan, M_H, (w, h))
@@ -130,19 +152,23 @@ def alignImages(image_scan, image_reference):
         # # Showing the keypoints on the images
         # img3 = cv2.drawMatches(image_scan, keypoints_dict['kp1'], image_reference, keypoints_dict['kp2'],
         #                        keypoints_dict["matches"], None, **draw_params)
-        # plt.imshow(img3, 'gray')
-        # plt.show()
         # # ------------------------------------------END---------------------------------
     else:
         finally_image_scan = image_scan
-    # # -------------------------------------Ploting the image----------------------------------
-    # images = [image_scan, image_reference, finally_image_scan, ]
-    # for i in range(1, 4):
-    #     plt.subplot(1, 3, i)
-    #     plt.imshow(images[i - 1])
-    # plt.show()
+    # # -------------------------------------Ploting the image---------------------
+    # images = [image_scan, im1, image_reference, im2, img3, finally_image_scan, ]
+    # img_horizontal = cv2.hconcat(images)
+    # # 指定保存的路径
+    # save_path = f'./imgs/change_kubric/orb/all/kepointandmatch_/{index}.png'
+    # print(save_path)
+    # # 如果目录不存在，创建目录
+    # if not os.path.exists(os.path.dirname(save_path)):
+    #     os.makedirs(os.path.dirname(save_path))
+    #
+    # cv2.imwrite(save_path, img_horizontal)
     # # -------------------------------------END----------------------------------
     return finally_image_scan, image_reference, H_default
+
 
 def image_procession(images_scan, images_reference):
     '''
@@ -152,16 +178,6 @@ def image_procession(images_scan, images_reference):
     :return:
     '''
     # show the image
-    """img_PIL = utils.general.tensor_to_PIL(images_scan[0])
-    plt.imshow(img_PIL)
-    plt.show()
-    img_CV = cv2.cvtColor(numpy.asarray(img_PIL), cv2.COLOR_RGB2BGR)
-    cv2.imshow('cv_im', img_CV)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()"""
-    # Fasterrcnn
-    # batchsize = images_scan.shape[0]
-    # Maskrcnn
     batchsize = len(images_scan)
     im_scan2refer = []
     im_refer2refer = []

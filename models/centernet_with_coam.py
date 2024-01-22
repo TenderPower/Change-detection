@@ -19,7 +19,7 @@ from models.coattention import CoAttentionModule
 from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
 import models.homo as homo
-from models.middle import PostModule, FModule, FuseChannelsModule
+from models.middle import FuseChannelsModuleAtten
 
 plt.ioff()
 from torchvision.ops import box_iou
@@ -61,9 +61,9 @@ class CenterNetWithCoAttention(pl.LightningModule):
             number_of_front_layers=number_of_front_layers,
             sizes=sizes,
         )
-        self.fusemodules = nn.ModuleList(
+        self.fusemodulesAtten = nn.ModuleList(
             [
-                FuseChannelsModule() for i in range(number_of_coam_layers)
+                FuseChannelsModuleAtten(coam_input_channels[i] // 2, i) for i in range(number_of_coam_layers)
             ]
         )
 
@@ -320,18 +320,13 @@ class CenterNetWithCoAttention(pl.LightningModule):
         imag_one_encoded_features = self.unet_model.encoder(imag_one)
         imag_two_encoded_features = self.unet_model.encoder(imag_two)
 
-        # 获取的feature进行channels划分--imag_one
-        for i in range(len(self.fusemodules)):
+        # 将encoder后的features进行处理
+        for i in range(len(self.fusemodulesAtten)):
             (
-                imag_one_encoded_features[-(i + 1)]
-            ) = self.fusemodules[i](
-                imag_one_encoded_features[-(i + 1)]
-            )
-        # 获取的feature进行channels划分--imag_two
-        for i in range(len(self.fusemodules)):
-            (
-                imag_two_encoded_features[-(i + 1)]
-            ) = self.fusemodules[i](
+                imag_one_encoded_features[-(i + 1)],
+                imag_two_encoded_features[-(i + 1)],
+            ) = self.fusemodulesAtten[i](
+                imag_one_encoded_features[-(i + 1)],
                 imag_two_encoded_features[-(i + 1)]
             )
 
@@ -376,7 +371,8 @@ def marshal_getitem_data(data, split):
     if len(image1_target_bboxes) != len(image2_target_bboxes) or len(image1_target_bboxes) == 0:
         return None
     # 图片变化
-    image2_to_image1, image1_to_image2 = alignimage(data["image1"], data["image2"])
+    image1_to_image2 = alignimage(data["image1"], data["image2"])
+    image2_to_image1 = alignimage(data["image2"], data["image1"])
     return {
         "left_image": data["image1"],
         "right_image": data["image2"],
@@ -403,17 +399,17 @@ def alignimage(image1_tensor, image2_tensor):
     # align the images
     # scan -> reference
     s2r, _, H = algin.alignImages(image1_cv, image2_cv)
-    inverH = torch.pinverse(torch.Tensor(H)).numpy()
-    h, w, channels = image2_cv.shape
-    # reference -> scan
-    r2s = cv2.warpPerspective(image2_cv, inverH, (w, h))
+    # inverH = torch.pinverse(torch.Tensor(H)).numpy()
+    # h, w, channels = image2_cv.shape
+    # # reference -> scan
+    # r2s = cv2.warpPerspective(image2_cv, inverH, (w, h))
 
     # 将cv转为tensor
 
     image1_to_image2 = pil_to_tensor(Image.fromarray(cv2.cvtColor(s2r, cv2.COLOR_BGR2RGB))).float() / 255.0
-    image2_to_image1 = pil_to_tensor(Image.fromarray(cv2.cvtColor(r2s, cv2.COLOR_BGR2RGB))).float() / 255.0
+    # image2_to_image1 = pil_to_tensor(Image.fromarray(cv2.cvtColor(r2s, cv2.COLOR_BGR2RGB))).float() / 255.0
 
-    return image2_to_image1, image1_to_image2
+    return image1_to_image2
 
 
 def dataloader_collate_fn(batch):
@@ -467,106 +463,3 @@ class WandbCallbackManager(pl.Callback):
         self.test_batches = [[] for _ in range(len(self.test_set_names))]
         self.test_set_predicted_bboxes = [[] for _ in range(len(self.test_set_names))]
         self.test_set_target_bboxes = [[] for _ in range(len(self.test_set_names))]
-
-    @rank_zero_only
-    def on_test_batch_end(
-            self, trainer, model, predicted_and_target_bboxes, batch, batch_idx, dataloader_idx=0
-    ):
-        if batch_idx == 0:
-            self.test_batches[dataloader_idx] = batch
-            (
-                left_predicted_bboxes,
-                right_predicted_bboxes,
-                left_target_bboxes,
-                right_target_bboxes,
-            ) = predicted_and_target_bboxes
-            self.test_set_predicted_bboxes[dataloader_idx] = [
-                (
-                    predicted_bboxes_per_left_image[0][predicted_bboxes_per_left_image[1] == 0],
-                    (predicted_bboxes_per_right_image[0][predicted_bboxes_per_right_image[1] == 0]),
-                )
-                for predicted_bboxes_per_left_image, predicted_bboxes_per_right_image in zip(
-                    left_predicted_bboxes, right_predicted_bboxes
-                )
-            ]
-            self.test_set_target_bboxes[dataloader_idx] = [
-                (target_bboxes_per_left_image, target_bboxes_per_right_image)
-                for target_bboxes_per_left_image, target_bboxes_per_right_image in zip(
-                    left_target_bboxes, right_target_bboxes
-                )
-            ]
-
-    @rank_zero_only
-    def on_test_end(self, trainer, model):
-        for test_set_index, test_set_name in enumerate(self.test_set_names):
-            self.log_qualitative_predictions(
-                self.test_batches[test_set_index],
-                self.test_set_predicted_bboxes[test_set_index],
-                self.test_set_target_bboxes[test_set_index],
-                f"test_{test_set_name}",
-                trainer,
-            )
-
-    def log_qualitative_predictions(
-            self,
-            batch,
-            predicted_bboxes,
-            target_bboxes,
-            batch_name,
-            trainer,
-    ):
-        """
-        Logs the predicted masks for a single val/test batch for qualitative analysis.
-        """
-        outputs = []
-        for (
-                left_image,
-                right_image,
-                target_bboxes_per_image,
-                predicted_bboxes_per_image,
-        ) in zip(batch["left_image"], batch["right_image"], target_bboxes, predicted_bboxes):
-            for this_image, predicted_bboxes_per_image, target_bboxes_per_image in zip(
-                    [left_image, right_image], predicted_bboxes_per_image, target_bboxes_per_image
-            ):
-                predicted_bboxes_for_this_image = self.get_wandb_bboxes(
-                    predicted_bboxes_per_image, class_id=1
-                )
-                ground_truth_bboxes_for_this_image = self.get_wandb_bboxes(
-                    target_bboxes_per_image, class_id=2
-                )
-                outputs.append(
-                    wandb.Image(
-                        K.tensor_to_image(this_image),
-                        boxes={
-                            "predictions": {"box_data": predicted_bboxes_for_this_image},
-                            "ground_truth": {"box_data": ground_truth_bboxes_for_this_image},
-                        },
-                    )
-                )
-        L.log("INFO", f"Finished computing qualitative predictions for {batch_name}.")
-        if not self.args.no_logging:
-            trainer.logger.experiment.log(
-                {
-                    f"qualitative_predictions/{batch_name}": outputs,
-                    "global_step": trainer.global_step,
-                }
-            )
-
-    def get_wandb_bboxes(self, bboxes_per_image, class_id):
-        boxes_for_this_image = []
-        image_width, image_height = 256, 256
-        try:
-            scores = bboxes_per_image[:, 4]
-        except:
-            scores = None
-        for index, box in enumerate(bboxes_per_image[:, :4]):
-            x1, y1 = [box[0].item() / image_width, box[1].item() / image_height]
-            x2, y2 = [box[2].item() / image_width, box[3].item() / image_height]
-            this_box_data = {
-                "position": {"minX": x1, "maxX": x2, "minY": y1, "maxY": y2},
-                "class_id": class_id,
-            }
-            if scores is not None:
-                this_box_data.update({"scores": {"score": scores[index].item()}})
-            boxes_for_this_image.append(this_box_data)
-        return boxes_for_this_image

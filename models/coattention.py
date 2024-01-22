@@ -51,8 +51,10 @@ class CoAttentionLayer(nn.Module):
         attention_map = torch.einsum("bcij,bckl->bijkl", Q, K)
         attention_map = rearrange(attention_map, "b h1 w1 h2 w2 -> b h1 w1 (h2 w2)")
         attention_map = nn.Softmax(dim=3)(attention_map)
-        attended_features = torch.einsum("bijp,bcp->bcij", attention_map, V)
+        print(attention_map.shape)
+        attended_features = torch.einsum("bijp,bcp->bcij", attention_map, V) #c，h*w -- b,c, h,w
         return attended_features
+        # return attention_map
 
 
 class NoAttentionLayer(nn.Module):

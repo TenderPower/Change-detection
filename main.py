@@ -14,6 +14,8 @@ from data.datamodule import DataModule
 from models.centernet_with_coam import CenterNetWithCoAttention
 from utils.general import get_easy_dict_from_yaml_file
 
+from torchsummary import summary
+
 warnings.filterwarnings("ignore")
 
 
@@ -89,12 +91,12 @@ if __name__ == "__main__":
             configs[key] = args[key]
 
     if configs.quick_prototype:
-        configs.limit_train_batches = 2
-        configs.limit_val_batches = 2
-        configs.limit_test_batches = 3
+        configs.limit_train_batches = 1
+        configs.limit_val_batches = 1
+        configs.limit_test_batches = 1
         configs.max_epochs = 1
 
-    print_args(configs)
+    # print_args(configs)
 
     pl.seed_everything(1, workers=True)
 
@@ -102,6 +104,7 @@ if __name__ == "__main__":
     if configs.method == "centernet":
         model = CenterNetWithCoAttention(configs)
 
+    print(model.summarize(mode='full'))
     logger = None
     callbacks = [get_logging_callback_manager(configs)]
     if not configs.no_logging:
@@ -111,11 +114,10 @@ if __name__ == "__main__":
             save_dir="/home/ygk/disk/pycharm_project/The-Change-You-Want-to-See-main/work",
             name=configs.experiment_name,
         )
-        # callbacks.append(ModelCheckpoint(save_top_k=2, monitor="val/overall_loss", mode="min",
-        #                                  filename='{epoch:02d}-val_overall_loss{val/overall_loss:.2f}', save_last=True))
-        callbacks.append(ModelCheckpoint(save_top_k=4, monitor="cocoval_AP", mode="max",
-                                         filename='{epoch:02d}-ap{cocoval_AP:.2f}', save_last=True))
-        # callbacks.append(EarlyStopping(monitor='val/overall_loss', patience=15, mode='min'))
+        callbacks.append(ModelCheckpoint(save_top_k=5, monitor="val/overall_loss", mode="min",
+                                         filename='{epoch:02d}-val_overall_loss{val/overall_loss:.2f}', save_last=True))
+        # callbacks.append(ModelCheckpoint(save_top_k=4, monitor="cocoval_AP", mode="max",
+        #                                  filename='{epoch:02d}-ap{cocoval_AP:.2f}', save_last=True))
 
     trainer = None
     if configs.test_from_checkpoint == "":
