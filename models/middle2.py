@@ -13,10 +13,9 @@ class FrontLayers(nn.Module):
         super().__init__()
         self.getDiffer = getDifference_()
 
-    def forward(self, left_features, right_features):
-        leftAttendedFeatures = self.getDiffer(left_features)
-        rightAttendedFeatures = self.getDiffer(right_features)
-        return leftAttendedFeatures, rightAttendedFeatures
+    def forward(self, image_features):
+        imageAttendedFeatures = self.getDiffer(image_features)
+        return imageAttendedFeatures
 
     pass
 
@@ -26,10 +25,9 @@ class BackLayers(nn.Module):
         super().__init__()
         self.getDiffer = getBothDifferences(input_dim)
 
-    def forward(self, left_features, right_features):
-        leftAttendedFeatures = self.getDiffer(left_features, right_features)
-        rightAttendedFeatures = self.getDiffer(right_features, left_features)
-        return leftAttendedFeatures, rightAttendedFeatures
+    def forward(self, image_features):
+        imageAttendedFeatures = self.getDiffer(image_features)
+        return imageAttendedFeatures
 
 
 class getBothDifferences(nn.Module):
@@ -38,16 +36,15 @@ class getBothDifferences(nn.Module):
         self.homo = HomoLayer()
         self.crossAttentionLayer = CoAttentionLayer(input_dim, input_dim // 8)
 
-    def forward(self, query_features, reference_features):
+    def forward(self, query_features):
         B, C, h, _ = query_features.size()
         C = C // 2
         # 原图1
         queryOriginFeature = query_features[:, :C, :, :]
         queryTransFeature = query_features[:, C:, :, :]
-        # 原图2
-        referenceOriginFeature = reference_features[:, :C, :, :]
+
         # 进行cross attention
-        crossDiff = self.crossAttentionLayer(queryOriginFeature, referenceOriginFeature)
+        crossDiff = self.crossAttentionLayer(queryOriginFeature, queryTransFeature)
         # 进行- 获取differ
         reduceDiff = self.homo(queryOriginFeature, queryTransFeature)
         # Differ 合并
@@ -57,20 +54,20 @@ class getBothDifferences(nn.Module):
 
 
 # 该HOmo进行了CNN处理
-class getDifference(nn.Module):
-    def __init__(self, input_dim):
-        super().__init__()
-        self.homo = HomoLayer(input_dim)
-
-    def forward(self, query_features):
-        B, C, h, _ = query_features.size()
-        C = int(C / 2)
-        queryOriginFeature = query_features[:, :C, :, :]
-        queryTransFeature = query_features[:, C:, :, :]
-        # 进行 - 获取differ
-        reduceDiff = self.homo(queryOriginFeature, queryTransFeature)
-        # 原图和Differ拼接
-        return torch.cat((queryOriginFeature, reduceDiff), 1)
+# class getDifference(nn.Module):
+#     def __init__(self, input_dim):
+#         super().__init__()
+#         self.homo = HomoLayer(input_dim)
+#
+#     def forward(self, query_features):
+#         B, C, h, _ = query_features.size()
+#         C = int(C / 2)
+#         queryOriginFeature = query_features[:, :C, :, :]
+#         queryTransFeature = query_features[:, C:, :, :]
+#         # 进行 - 获取differ
+#         reduceDiff = self.homo(queryOriginFeature, queryTransFeature)
+#         # 原图和Differ拼接
+#         return torch.cat((queryOriginFeature, reduceDiff), 1)
 
 
 # 该Homo只是简单进行减操作
@@ -90,11 +87,12 @@ class getDifference_(nn.Module):
 
 
 class HomoLayer(nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self):
         super().__init__()
 
     def forward(self, query_features, reference_features):
         correlation = query_features - reference_features
+
         return correlation
 
 
@@ -154,4 +152,5 @@ class CoAttentionLayer(nn.Module):
         attention_map = rearrange(attention_map, "b h1 w1 h2 w2 -> b h1 w1 (h2 w2)")
         attention_map = nn.Softmax(dim=3)(attention_map)
         attended_features = torch.einsum("bijp,bcp->bcij", attention_map, V)
+
         return attended_features

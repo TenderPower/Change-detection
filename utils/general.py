@@ -67,7 +67,7 @@ def cache_data_triton(path_to_dataset, path_to_file, machine):
     return caching_location
 
 def tensor_to_PIL(tensor):
-    image = tensor.cpu().clone()
+    image = tensor.cpu()
     image = image.squeeze(0)
     unloader = transforms.ToPILImage()
     image = unloader(image)

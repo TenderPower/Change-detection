@@ -104,7 +104,10 @@ if __name__ == "__main__":
     if configs.method == "centernet":
         model = CenterNetWithCoAttention(configs)
 
-    print(model.summarize(mode='full'))
+    # 设置'spawn'启动方法
+    # torch.multiprocessing.set_start_method('spawn')
+
+    # print(model.summarize(mode='full'))
     logger = None
     callbacks = [get_logging_callback_manager(configs)]
     if not configs.no_logging:
@@ -115,7 +118,8 @@ if __name__ == "__main__":
             name=configs.experiment_name,
         )
         callbacks.append(ModelCheckpoint(save_top_k=5, monitor="val/overall_loss", mode="min",
-                                         filename='{epoch:02d}-val_overall_loss{val/overall_loss:.2f}', save_last=True))
+                                         filename='{epoch:02d}-val_overall_loss', save_last=True))
+        callbacks.append(EarlyStopping(monitor="val/overall_loss", mode='min', patience=10))
         # callbacks.append(ModelCheckpoint(save_top_k=4, monitor="cocoval_AP", mode="max",
         #                                  filename='{epoch:02d}-ap{cocoval_AP:.2f}', save_last=True))
 

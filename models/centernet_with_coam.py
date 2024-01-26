@@ -12,14 +12,13 @@ from mmdet.models.dense_heads.centernet_head import CenterNetHead
 from pytorch_lightning.utilities import rank_zero_only
 
 import utils.general
-import wandb
 from data.datamodule import DataModule
 from models.coattention import CoAttentionModule
 # from segmentation_models_pytorch.unet.model import Unet
 from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
-import models.homo as homo
-from models.middle import FuseChannelsModuleAtten
+from models.middle2 import BackLayers, FrontLayers
+from models.test__ import alignImage
 
 plt.ioff()
 from torchvision.ops import box_iou
@@ -40,9 +39,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
         self.weight_decay = args.weight_decay
         number_of_coam_layers, number_of_post_layers, number_of_middle_layers, number_of_front_layers, \
             coam_input_channels, coam_hidden_channels, sizes = args.coam_layer_data
-        self.number_of_front_layers = number_of_front_layers
-        self.number_of_post_layers = number_of_post_layers
-        self.number_of_middle_layers = number_of_middle_layers
+        self.numberPost = number_of_post_layers
         self.unet_model = Unet(
             args.encoder,
             decoder_channels=(256, 256, 128, 128, 64),
@@ -53,17 +50,16 @@ class CenterNetWithCoAttention(pl.LightningModule):
             decoder_attention_type=args.decoder_attention,
             disable_segmentation_head=True,
             fix_dim=True,
-            able_customize_set=False,
-            fuse=False,
             half_dim=False,
-            number_of_post_layers=number_of_post_layers,
-            number_of_middle_layers=number_of_middle_layers,
-            number_of_front_layers=number_of_front_layers,
-            sizes=sizes,
         )
-        self.fusemodulesAtten = nn.ModuleList(
+        self.backLayers = nn.ModuleList(
             [
-                FuseChannelsModuleAtten(coam_input_channels[i] // 2, i) for i in range(number_of_coam_layers)
+                BackLayers(coam_input_channels[i] // 2) for i in range(number_of_post_layers)
+            ]
+        )
+        self.frontLayers = nn.ModuleList(
+            [
+                FrontLayers() for _ in range(number_of_post_layers, number_of_coam_layers)
             ]
         )
 
@@ -300,6 +296,9 @@ class CenterNetWithCoAttention(pl.LightningModule):
             )
 
     def configure_optimizers(self):
+        # for n, p in self.named_parameters():
+        #     if "test_" in n:
+        #         p.requires_grad = False
         optimizer_params = [
             {"params": [parameter for parameter in self.parameters() if parameter.requires_grad]}
         ]
@@ -307,28 +306,43 @@ class CenterNetWithCoAttention(pl.LightningModule):
         return optimizer
 
     def forward(self, batch):
-        left_images = batch['left_image']
-        right_images = batch['right_image']
-        l2r = batch['left2right']
-        r2l = batch['right2left']
+        # left_images = batch['left_image']
+        # right_images = batch['right_image']
+        # l2r = batch['left2right']
+        # r2l = batch['right2left']
+        #
+        # # 将图片1与对齐后的图片2 进行拼接
+        # imag_one = torch.concat((left_images, r2l), 1)
+        # imag_two = torch.concat((right_images, l2r), 1)
 
-        # 将图片1与对齐后的图片2 进行拼接
-        imag_one = torch.concat((left_images, r2l), 1)
-        imag_two = torch.concat((right_images, l2r), 1)
+        imag_one = batch['imag_one']
+        imag_two = batch['imag_two']
 
         # 将通道数为6的图片，放入到encoder里面
         imag_one_encoded_features = self.unet_model.encoder(imag_one)
         imag_two_encoded_features = self.unet_model.encoder(imag_two)
 
-        # 将encoder后的features进行处理
-        for i in range(len(self.fusemodulesAtten)):
-            (
-                imag_one_encoded_features[-(i + 1)],
-                imag_two_encoded_features[-(i + 1)],
-            ) = self.fusemodulesAtten[i](
-                imag_one_encoded_features[-(i + 1)],
-                imag_two_encoded_features[-(i + 1)]
-            )
+        # --------------Left-------------------
+        # 将encoder后的features进行处理----backlayers
+        for i in range(len(self.backLayers)):
+            imag_one_encoded_features[-(i + 1)] = self.backLayers[i](imag_one_encoded_features[-(i + 1)])
+
+        # 将encoder后的features进行处理----frontlayers
+        for i in range(len(self.frontLayers)):
+            imag_one_encoded_features[-(i + 1 + self.numberPost)] = self.frontLayers[i](
+                imag_one_encoded_features[-(i + 1 + self.numberPost)])
+        # ---------------------End---------------------------------
+
+        # --------------Right-------------------
+        # 将encoder后的features进行处理----backlayers
+        for i in range(len(self.backLayers)):
+            imag_two_encoded_features[-(i + 1)] = self.backLayers[i](imag_two_encoded_features[-(i + 1)])
+
+        # 将encoder后的features进行处理----frontlayers
+        for i in range(len(self.frontLayers)):
+            imag_two_encoded_features[-(i + 1 + self.numberPost)] = self.frontLayers[i](
+                imag_two_encoded_features[-(i + 1 + self.numberPost)])
+        # ---------------------End---------------------------------
 
         left_image_decoded_features = self.unet_model.decoder(*imag_one_encoded_features)
         right_image_decoded_features = self.unet_model.decoder(*imag_two_encoded_features)
@@ -370,14 +384,14 @@ def marshal_getitem_data(data, split):
 
     if len(image1_target_bboxes) != len(image2_target_bboxes) or len(image1_target_bboxes) == 0:
         return None
-    # 图片变化
-    image1_to_image2 = alignimage(data["image1"], data["image2"])
-    image2_to_image1 = alignimage(data["image2"], data["image1"])
+    # 图片变化--使用的是传统对齐
+    # image1_to_image2 = alignimage(data["image1"], data["image2"])
+    # image2_to_image1 = alignimage(data["image2"], data["image1"])
+    # 使用模型
+    # image1_to_image2, image2_to_image1 = alignImage(data["image1"], data["image2"])
     return {
         "left_image": data["image1"],
         "right_image": data["image2"],
-        "left2right": image1_to_image2,
-        "right2left": image2_to_image1,
         "left_image_target_bboxes": image1_target_bboxes,
         "right_image_target_bboxes": image2_target_bboxes,
         "target_bbox_labels": torch.zeros(len(image1_target_bboxes)).long(),
@@ -389,6 +403,7 @@ def marshal_getitem_data(data, split):
     }
 
 
+# 使用的是传统对齐
 def alignimage(image1_tensor, image2_tensor):
     # plt
     image1_plt = general.tensor_to_PIL(image1_tensor)
@@ -433,7 +448,7 @@ def dataloader_collate_fn(batch):
         collated_dictionary[key] = ImageList.from_tensors(
             collated_dictionary[key], size_divisibility=32
         ).tensor
-    collated_dictionary
+    collated_dictionary = alignImage(collated_dictionary)
     return collated_dictionary
 
 
