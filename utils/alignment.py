@@ -57,7 +57,14 @@ def get_keypoints(image_scan, image_reference):
     # img2 = cv2.drawKeypoints(image2_Gray, keypoints2, None, color=(0, 255, 0), flags=0)
     # # -------------------END------------------------------------------------------------
     # Match features.
-    matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+
+    #创建BEBLID描述符
+    beblid = cv2.xfeatures2d.BEBLID_create(0.75)
+    #使用BEBLID计算描述符
+    descriptors1 = beblid.compute(image1_Gray,keypoints1)[1]
+    descriptors2 = beblid.compute(image2_Gray,keypoints2)[1]
+
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
     # matcher = cv2.FlannBasedMatcher(indexParams=dict(algorithm=0, trees=5), searchParams=dict(checks=100))
     """
     matches为数据类型为list，包含了所匹配的特征点，list中每个元素的数据类型为DMatch。
@@ -133,7 +140,7 @@ def alignImages(image_scan, image_reference):
     # img3 = image_reference
     if len(points1) > 5 or len(points2) > 5:
         # Homography
-        M_H, mask = cv2.findHomography(points1, points2, cv2.RANSAC, ransacReprojThreshold=3)
+        M_H, mask = cv2.findHomography(points1, points2, cv2.RANSAC, ransacReprojThreshold=5.0)
         if M_H is not None:
             h, w, channels = image_reference.shape
             perspective_image_scan = cv2.warpPerspective(image_scan, M_H, (w, h))

@@ -1,11 +1,12 @@
 encoder: resnet50
 attention: homo
 #coam_layer_data: [3, [2048, 1024, 512], [256, 128, 64]]
-coam_layer_data: [ 3, 4, 3, 1, [ 2048, 1024, 512], [ 256, 128, 64], [ 4, 8, 16, 32, 64 ] ]
+#coam_layer_data: [ 3, 4, 3, 1, [ 2048, 1024, 512], [ 256, 128, 64], [ 4, 8, 16, 32, 64 ] ]
+coam_layer_data: [ 5, 4, _, _, [ 2048, 1024, 512, 256, 64 ], [ ], [ ] ]
 lr: 0.0001
 weight_decay: 0.0005
 batch_size: 16
-test_batch_size: 1
+test_batch_size: 16
 num_dataloader_workers: 8
 datasets:
   train_dataset:
@@ -29,5 +30,11 @@ datasets:
       class: KubricChange
       args:
         path_to_dataset: /home/ygk/disk/datas/data/kubric-change
+        split: "test"
+        method: "centernet"
+    - name: kc3d
+      class: KC3D
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/kc3d
         split: "test"
         method: "centernet"

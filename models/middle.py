@@ -36,6 +36,7 @@ class getBothDifferences(nn.Module):
     def __init__(self, input_dim):
         super().__init__()
         self.homo = HomoLayer()
+        # self.a = Self_Attn(input_dim)
         self.crossAttentionLayer = CoAttentionLayer(input_dim, input_dim // 8)
 
     def forward(self, query_features, reference_features):
@@ -50,6 +51,8 @@ class getBothDifferences(nn.Module):
         crossDiff = self.crossAttentionLayer(queryOriginFeature, referenceOriginFeature)
         # 进行- 获取differ
         reduceDiff = self.homo(queryOriginFeature, queryTransFeature)
+        # 对reduceDiff 进行Self——attention
+        # reduceDiff = self.a(reduceDiff)
         # Differ 合并
         diff = crossDiff + reduceDiff
         # 原图和Differ拼接
@@ -90,12 +93,14 @@ class getDifference_(nn.Module):
 
 
 class HomoLayer(nn.Module):
-    def __init__(self, input_dim):
+    def __init__(self):
         super().__init__()
 
     def forward(self, query_features, reference_features):
         correlation = query_features - reference_features
-        return correlation
+        correlation = nn.Softmax(dim=1)(correlation)
+        out = torch.einsum("bcwh,bcwh->bcwh", correlation, reference_features)
+        return out
 
 
 class Self_Attn(nn.Module):

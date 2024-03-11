@@ -10,14 +10,14 @@ from easydict import EasyDict
 from loguru import logger as L
 from mmdet.models.dense_heads.centernet_head import CenterNetHead
 from pytorch_lightning.utilities import rank_zero_only
-
+from einops import rearrange
 import utils.general
 from data.datamodule import DataModule
 from models.coattention import CoAttentionModule
 # from segmentation_models_pytorch.unet.model import Unet
 from models.unet import Unet
 from utils.voc_eval import BoxList, eval_detection_voc
-from models.middle2 import BackLayers, FrontLayers
+from models.middle import BackLayers, FrontLayers
 from models.test__ import alignImage
 
 plt.ioff()
@@ -26,9 +26,11 @@ from torchvision.utils import save_image, draw_bounding_boxes
 import os
 import cv2
 import utils.general as general
+import utils
 import utils.alignment as algin
 from PIL import Image, PngImagePlugin
 from torchvision.transforms.functional import pil_to_tensor
+from models.registeration_module import FeatureRegisterationModule
 
 
 class CenterNetWithCoAttention(pl.LightningModule):
@@ -296,9 +298,6 @@ class CenterNetWithCoAttention(pl.LightningModule):
             )
 
     def configure_optimizers(self):
-        # for n, p in self.named_parameters():
-        #     if "test_" in n:
-        #         p.requires_grad = False
         optimizer_params = [
             {"params": [parameter for parameter in self.parameters() if parameter.requires_grad]}
         ]
@@ -306,43 +305,31 @@ class CenterNetWithCoAttention(pl.LightningModule):
         return optimizer
 
     def forward(self, batch):
-        # left_images = batch['left_image']
-        # right_images = batch['right_image']
-        # l2r = batch['left2right']
-        # r2l = batch['right2left']
-        #
-        # # 将图片1与对齐后的图片2 进行拼接
-        # imag_one = torch.concat((left_images, r2l), 1)
-        # imag_two = torch.concat((right_images, l2r), 1)
+        left_images = batch['left_image']
+        right_images = batch['right_image']
+        l2r = batch['left2right']
+        r2l = batch['right2left']
 
-        imag_one = batch['imag_one']
-        imag_two = batch['imag_two']
+        # 将图片1与对齐后的图片2 进行拼接
+        imag_one = torch.concat((left_images, r2l), 1)
+        imag_two = torch.concat((right_images, l2r), 1)
 
         # 将通道数为6的图片，放入到encoder里面
         imag_one_encoded_features = self.unet_model.encoder(imag_one)
         imag_two_encoded_features = self.unet_model.encoder(imag_two)
 
-        # --------------Left-------------------
         # 将encoder后的features进行处理----backlayers
         for i in range(len(self.backLayers)):
-            imag_one_encoded_features[-(i + 1)] = self.backLayers[i](imag_one_encoded_features[-(i + 1)])
+            (imag_one_encoded_features[-(i + 1)],
+             imag_two_encoded_features[-(i + 1)]) = self.backLayers[i](
+                imag_one_encoded_features[-(i + 1)], imag_two_encoded_features[-(i + 1)])
 
         # 将encoder后的features进行处理----frontlayers
         for i in range(len(self.frontLayers)):
-            imag_one_encoded_features[-(i + 1 + self.numberPost)] = self.frontLayers[i](
-                imag_one_encoded_features[-(i + 1 + self.numberPost)])
-        # ---------------------End---------------------------------
-
-        # --------------Right-------------------
-        # 将encoder后的features进行处理----backlayers
-        for i in range(len(self.backLayers)):
-            imag_two_encoded_features[-(i + 1)] = self.backLayers[i](imag_two_encoded_features[-(i + 1)])
-
-        # 将encoder后的features进行处理----frontlayers
-        for i in range(len(self.frontLayers)):
-            imag_two_encoded_features[-(i + 1 + self.numberPost)] = self.frontLayers[i](
+            (imag_one_encoded_features[-(i + 1 + self.numberPost)],
+             imag_two_encoded_features[-(i + 1 + self.numberPost)]) = self.frontLayers[i](
+                imag_one_encoded_features[-(i + 1 + self.numberPost)],
                 imag_two_encoded_features[-(i + 1 + self.numberPost)])
-        # ---------------------End---------------------------------
 
         left_image_decoded_features = self.unet_model.decoder(*imag_one_encoded_features)
         right_image_decoded_features = self.unet_model.decoder(*imag_two_encoded_features)
@@ -358,49 +345,119 @@ def marshal_getitem_data(data, split):
     This function marshals that data into the format expected by this
     model/method.
     """
+
+    # ----------------------3D--------------------------
+    def create_sanity_data(data):
+        data_ = {}
+        all_keys = [
+            "image1",
+            "image2",
+            "depth1",
+            "depth2",
+            "image1_target_annotations",
+            "image2_target_annotations",
+            "intrinsics1",
+            "intrinsics2",
+            "position1",
+            "position2",
+            "rotation1",
+            "rotation2",
+            "registration_strategy",
+            "index"
+        ]
+        for key in all_keys:
+            value = data.get(key, None)
+            if value is None:
+                data_[key] = None
+                continue
+            data_[key] = value
+        return data_
+
+    # -------------------END---------------------------
     if split in ["train", "val", "test"]:
-        (
-            data["image1"],
-            target_region_and_annotations,
-        ) = utils.geometry.resize_image_and_annotations(
-            data["image1"],
-            output_shape_as_hw=(256, 256),
-            annotations=data["image1_target_annotations"],
-        )
-        data["image1_target_annotations"] = target_region_and_annotations
-        (
-            data["image2"],
-            target_region_and_annotations,
-        ) = utils.geometry.resize_image_and_annotations(
-            data["image2"],
-            output_shape_as_hw=(256, 256),
-            annotations=data["image2_target_annotations"],
-        )
-        data["image2_target_annotations"] = target_region_and_annotations
+        # 对3d图片
+        if 'registration_strategy' in data:
+            data = create_sanity_data(data)
+            #     进行resize--貌似不需要
+            data = prepare_batch_for_model(data)
+
+
+        # 对2d图片进行resize
+        else:
+            (
+                data["image1"],
+                target_region_and_annotations,
+            ) = utils.geometry.resize_image_and_annotations(
+                data["image1"],
+                output_shape_as_hw=(256, 256),
+                annotations=data["image1_target_annotations"],
+            )
+            data["image1_target_annotations"] = target_region_and_annotations
+            (
+                data["image2"],
+                target_region_and_annotations,
+            ) = utils.geometry.resize_image_and_annotations(
+                data["image2"],
+                output_shape_as_hw=(256, 256),
+                annotations=data["image2_target_annotations"],
+            )
+            data["image2_target_annotations"] = target_region_and_annotations
 
     assert data["image1"].shape == data["image2"].shape
-    image1_target_bboxes = torch.Tensor([x["bbox"] for x in data["image1_target_annotations"]])
-    image2_target_bboxes = torch.Tensor([x["bbox"] for x in data["image2_target_annotations"]])
+    if 'registration_strategy' in data:
+        image1_target_bboxes = data["image1_target_annotations"]
+        image2_target_bboxes = data["image2_target_annotations"]
+    else:
+        image1_target_bboxes = torch.Tensor([x["bbox"] for x in data["image1_target_annotations"]])
+        image2_target_bboxes = torch.Tensor([x["bbox"] for x in data["image2_target_annotations"]])
 
     if len(image1_target_bboxes) != len(image2_target_bboxes) or len(image1_target_bboxes) == 0:
         return None
+
     # 图片变化--使用的是传统对齐
     # image1_to_image2 = alignimage(data["image1"], data["image2"])
     # image2_to_image1 = alignimage(data["image2"], data["image1"])
     # 使用模型
     # image1_to_image2, image2_to_image1 = alignImage(data["image1"], data["image2"])
-    return {
-        "left_image": data["image1"],
-        "right_image": data["image2"],
-        "left_image_target_bboxes": image1_target_bboxes,
-        "right_image_target_bboxes": image2_target_bboxes,
-        "target_bbox_labels": torch.zeros(len(image1_target_bboxes)).long(),
-        "query_metadata": {
-            "pad_shape": data["image1"].shape[-2:],
-            "border": np.array([0, 0, 0, 0]),
-            "batch_input_shape": data["image1"].shape[-2:],
-        },
-    }
+
+    # ----------------------3D--------------------------
+    if 'registration_strategy' in data:
+        return {
+            "left_image": data["image1"],
+            "right_image": data["image2"],
+            "left_image_target_bboxes": image1_target_bboxes,
+            "right_image_target_bboxes": image2_target_bboxes,
+            "target_bbox_labels": torch.zeros(len(image1_target_bboxes)).long(),
+            "registration_strategy": data['registration_strategy'],
+            "depth1": data["depth1"],
+            "depth2": data["depth2"],
+            "intrinsics1": data["intrinsics1"],
+            "intrinsics2": data["intrinsics2"],
+            "position1": data["position1"],
+            "position2": data["position2"],
+            "rotation1": data["rotation1"],
+            "rotation2": data["rotation2"],
+            "query_metadata": {
+                "pad_shape": data["image1"].shape[-2:],
+                "border": np.array([0, 0, 0, 0]),
+                "batch_input_shape": data["image1"].shape[-2:],
+            },
+            "index": data["index"]
+        }
+    # -------------------END---------------------------
+    else:
+        return {
+            "left_image": data["image1"],
+            "right_image": data["image2"],
+            "left_image_target_bboxes": image1_target_bboxes,
+            "right_image_target_bboxes": image2_target_bboxes,
+            "target_bbox_labels": torch.zeros(len(image1_target_bboxes)).long(),
+            "query_metadata": {
+                "pad_shape": data["image1"].shape[-2:],
+                "border": np.array([0, 0, 0, 0]),
+                "batch_input_shape": data["image1"].shape[-2:],
+            },
+        }
 
 
 # 使用的是传统对齐
@@ -427,7 +484,77 @@ def alignimage(image1_tensor, image2_tensor):
     return image1_to_image2
 
 
-def dataloader_collate_fn(batch):
+def normalise_image(img_as_tensor):
+    imagenet_normalisation = K.enhance.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    img = rearrange(img_as_tensor, "c h w -> 1 c h w")
+    img = imagenet_normalisation(img)
+    return img.squeeze()
+
+
+def convert_kornia_transformation_matrix_to_normalised_coordinates(matrix, original_hw, new_hw):
+    scale_up = torch.Tensor([[original_hw[1], 0, 0], [0, original_hw[0], 0], [0, 0, 1]])
+    scale_down = torch.Tensor([[1 / new_hw[1], 0, 0], [0, 1 / new_hw[0], 0], [0, 0, 1]])
+    return scale_down @ matrix @ scale_up
+
+
+def resize_bbox(bboxes, original_size, new_size):
+    """
+    Args:
+        bboxes: tensor of shape (N, 4) representing N bounding boxes.
+                Each bounding box is represented as (x1, y1, x2, y2)
+        original_size: tuple or list containing original image size (width, height)
+        new_size: tuple or list containing new image size (width, height)
+    Returns:
+        resized_bboxes: tensor of shape (N, 4) representing resized bounding boxes.
+    """
+    # 计算缩放比例
+    w_ratio = new_size[0] / original_size[0]
+    h_ratio = new_size[1] / original_size[1]
+
+    # 重塑bbox
+    resized_bboxes = torch.zeros_like(bboxes)
+    resized_bboxes[:, 0] = bboxes[:, 0] * w_ratio  # x1
+    resized_bboxes[:, 1] = bboxes[:, 1] * h_ratio  # y1
+    resized_bboxes[:, 2] = bboxes[:, 2] * w_ratio  # x2
+    resized_bboxes[:, 3] = bboxes[:, 3] * h_ratio  # y2
+
+    return resized_bboxes
+
+
+def prepare_batch_for_model(data):
+    nearest_resize = K.augmentation.Resize((256, 256), resample=0, align_corners=None, keepdim=True)
+    bicubic_resize = K.augmentation.Resize((256, 256), resample=2, keepdim=True)
+
+    original_hw1 = data["image1"].shape[-2:]
+    original_hw2 = data["image2"].shape[-2:]
+
+    data["image1_target_annotations"] = resize_bbox(data["image1_target_annotations"], original_hw1, (256, 256))
+    data["image2_target_annotations"] = resize_bbox(data["image2_target_annotations"], original_hw2, (256, 256))
+
+    data["image1"] = bicubic_resize(data["image1"])
+    data["image2"] = bicubic_resize(data["image2"])
+    if data["depth1"] is not None:
+        original_depth_hw1 = data["depth1"].shape[-2:]
+        data["depth1"] = nearest_resize(data["depth1"])
+    if data["depth2"] is not None:
+        original_depth_hw2 = data["depth2"].shape[-2:]
+        data["depth2"] = nearest_resize(data["depth2"])
+    if data["intrinsics1"] is not None:
+        assert original_hw1 == original_depth_hw1
+        transformation = nearest_resize.transform_matrix.squeeze()
+        transformation = convert_kornia_transformation_matrix_to_normalised_coordinates(transformation,
+                                                                                        original_hw1, (224, 224))
+        data["intrinsics1"] = transformation @ data["intrinsics1"]
+    if data["intrinsics2"] is not None:
+        assert original_hw2 == original_depth_hw2
+        transformation = nearest_resize.transform_matrix.squeeze()
+        transformation = convert_kornia_transformation_matrix_to_normalised_coordinates(transformation,
+                                                                                        original_hw2, (224, 224))
+        data["intrinsics2"] = transformation @ data["intrinsics2"]
+    return data
+
+
+def dataloader_collate_fn(batch, test):
     """
     Defines the collate function for the dataloader specific to this
     method/model.
@@ -443,12 +570,25 @@ def dataloader_collate_fn(batch):
             "right_image_target_bboxes",
             "query_metadata",
             "target_bbox_labels",
+            "depth1",
+            "depth2",
+            "intrinsics1",
+            "intrinsics2",
+            "position1",
+            "position2",
+            "rotation1",
+            "rotation2",
+            "registration_strategy",
+            "index",
         ]:
             continue
         collated_dictionary[key] = ImageList.from_tensors(
             collated_dictionary[key], size_divisibility=32
         ).tensor
-    collated_dictionary = alignImage(collated_dictionary)
+    collated_dictionary = test.alignImage(collated_dictionary)
+    # if 'registration_strategy' in collated_dictionary:
+    #     register = FeatureRegisterationModule()
+    #     collated_dictionary = register.func(collated_dictionary)
     return collated_dictionary
 
 

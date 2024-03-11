@@ -20,7 +20,6 @@ class AugmentationPipeline(nn.Module):
             scale=(0.8, 1.5, 0.8, 1.5),
             padding_mode="border",
             p=1.0,
-            return_transform=True,
             keepdim=True,
         )
         self.mode = mode
@@ -40,8 +39,8 @@ class AugmentationPipeline(nn.Module):
         input = self.jit(input)
         if self.image_transformation == "identity":
             return input, torch.eye(3)
-        input, transformation = self.aff(input)
-        return input, transformation
+        input = self.aff(input)
+        return input, self.aff.transform_matrix
 
     def apply_test_augmentations(self, input, type_of_image, image_index):
         precomputed_augmentation_path = os.path.join(
@@ -58,8 +57,8 @@ class AugmentationPipeline(nn.Module):
         input = self.jit(input, params=augmentation_params["jit"])
         if self.image_transformation == "identity":
             return input, torch.eye(3)
-        input, transformation = self.aff(input, params=augmentation_params["aff"])
-        return input, transformation
+        input = self.aff(input, params=augmentation_params["aff"])
+        return input, self.aff.transform_matrix
 
     def forward(self, image1_image_as_tensor, image2_image_as_tensor, annotations, image_index):
         if self.image_transformation == "registered":

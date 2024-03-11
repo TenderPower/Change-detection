@@ -91,7 +91,7 @@ if __name__ == "__main__":
             configs[key] = args[key]
 
     if configs.quick_prototype:
-        configs.limit_train_batches = 1
+        configs.limit_train_batches = 200
         configs.limit_val_batches = 1
         configs.limit_test_batches = 1
         configs.max_epochs = 1
@@ -119,7 +119,7 @@ if __name__ == "__main__":
         )
         callbacks.append(ModelCheckpoint(save_top_k=5, monitor="val/overall_loss", mode="min",
                                          filename='{epoch:02d}-val_overall_loss', save_last=True))
-        callbacks.append(EarlyStopping(monitor="val/overall_loss", mode='min', patience=10))
+        # callbacks.append(EarlyStopping(monitor="val/overall_loss", mode='min', patience=10))
         # callbacks.append(ModelCheckpoint(save_top_k=4, monitor="cocoval_AP", mode="max",
         #                                  filename='{epoch:02d}-ap{cocoval_AP:.2f}', save_last=True))
 
