@@ -4,7 +4,6 @@ import os
 
 import kornia as K
 import numpy as np
-import shapely.geometry
 from einops import rearrange
 from PIL import Image
 from scipy.ndimage import label as label_connected_components
@@ -12,11 +11,9 @@ from torch.utils.data import Dataset
 from torchvision.ops import masks_to_boxes
 from torchvision.transforms.functional import pil_to_tensor
 
-import utils.geometry
-
 
 class KubricChange(Dataset):
-    def __init__(self, path_to_dataset, split, method):
+    def __init__(self, depth_predictor, path_to_dataset, split, method):
         assert split == "test"
         self.split = split
         self.marshal_getitem_data = self.import_method_specific_functions(method)
@@ -116,4 +113,5 @@ class KubricChange(Dataset):
             "image2": image2_as_tensor.squeeze(),
             "image1_target_annotations": image1_target_annotation,
             "image2_target_annotations": image2_target_annotation,
+            # "registration_strategy": None
         }

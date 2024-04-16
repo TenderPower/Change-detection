@@ -5,7 +5,6 @@ import torch.nn as nn
 from models.coattention import MyLayer
 from einops import rearrange
 import models.CCL_pytorch as ccl
-import models.net as net
 
 
 class FrontLayers(nn.Module):

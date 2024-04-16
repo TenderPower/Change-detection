@@ -2,7 +2,7 @@ import numpy as np
 import pytorch_lightning as pl
 from loguru import logger as L
 from torch.utils.data import ConcatDataset, DataLoader
-
+import time
 from data.inpainted_coco_dataset import InpatinedCocoDataset  # noqa
 from data.kubric_change import KubricChange  # noqa
 from data.std import StdDataset  # noqa
@@ -10,6 +10,13 @@ from data.synthtext_dataset import SynthTextDataset  # noqa
 from data.kc3d import KC3D
 from data.rc3d import RC3D
 from models.test___ import Test
+from models.monodepth import Mono
+from data.customdatasets import Datasets
+import torch
+
+# max_retries = 3
+# retry_count = 0
+
 
 class DataModule(pl.LightningDataModule):
     def __init__(self, args):
@@ -21,6 +28,8 @@ class DataModule(pl.LightningDataModule):
         self.dataset_configs = args.datasets
         self.dataloader_collate_fn = self.import_method_specific_functions(self.method)
         self.testAlignImage = Test()
+        # self.depth_predictor = torch.hub.load("isl-org/ZoeDepth", "ZoeD_NK", pretrained=True).eval()
+        self.depth_predictor = Mono(no_cuda=True)
     @staticmethod
     def add_data_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("InpaintedCOCODataModule")
@@ -30,7 +39,7 @@ class DataModule(pl.LightningDataModule):
         return parent_parser
 
     def import_method_specific_functions(self, method):
-        if method == "centernet":
+        if method == "centernet" or method == "other":
             from models.centernet_with_coam import dataloader_collate_fn
         else:
             raise NotImplementedError(f"Unknown method {method}")
@@ -56,19 +65,21 @@ class DataModule(pl.LightningDataModule):
                     f"Made {tries} attempts to construct a non-None batch.\
                         If this happens too often, maybe it's not a good workaround.",
                 )
-        return self.dataloader_collate_fn(batch,self.testAlignImage)
+        return self.dataloader_collate_fn(batch, self.testAlignImage, self.depth_predictor)
 
     def setup(self, stage=None):
         train_dataset_configs = self.dataset_configs["train_datasets"]
-        self.train_datasets = []
+        train_datasets = []
         for train_dataset_config in train_dataset_configs:
-            self.train_datasets.append(eval(train_dataset_config["name"])(**train_dataset_config["args"]))
+            train_datasets.append(
+                eval(train_dataset_config["class"])(self.depth_predictor, **train_dataset_config["args"]))
+        self.traindatasets = Datasets(train_datasets)
 
         val_dataset_configs = self.dataset_configs["val_datasets"]
-        self.val_datasets=[]
+        val_datasets = []
         for val_dataset_config in val_dataset_configs:
-            self.val_datasets.append(eval(val_dataset_config["class"])(**val_dataset_config["args"]))
-
+            val_datasets.append(eval(val_dataset_config["class"])(self.depth_predictor, **val_dataset_config["args"]))
+        self.valdatasets = Datasets(val_datasets)
         test_datasets_configs = self.dataset_configs["test_datasets"]
         self.test_dataset_names = []
         self.test_datasets = []
@@ -76,49 +87,35 @@ class DataModule(pl.LightningDataModule):
             if test_dataset_config["class"] == "ConcatDataset":
                 datasets = []
                 for dataset_config in test_dataset_config["datasets"]:
-                    datasets.append(eval(dataset_config["class"])(**dataset_config["args"]))
+                    datasets.append(eval(dataset_config["class"])(self.depth_predictor, **dataset_config["args"]))
                 self.test_datasets.append(ConcatDataset(datasets))
             else:
                 self.test_datasets.append(
-                    eval(test_dataset_config["class"])(**test_dataset_config["args"])
+                    eval(test_dataset_config["class"])(self.depth_predictor, **test_dataset_config["args"])
                 )
             self.test_dataset_names.append(test_dataset_config["name"])
 
     def train_dataloader(self):
-        dataloaders = []
-        for train_dataset in self.train_datasets:
-            def collate_fn_wrapper(batch):
-                return self.collate_fn(batch, train_dataset)
+        def collate_fn_wrapper(batch):
+            return self.collate_fn(batch, self.traindatasets)
 
-            dataloaders.append(
-                DataLoader(
-                    train_dataset,
-                    batch_size=self.test_batch_size,
-                    num_workers=self.num_dataloader_workers,
-                    collate_fn=collate_fn_wrapper,
-                )
-            )
-        return dataloaders
+        return DataLoader(self.traindatasets,
+                          batch_size=self.batch_size,
+                          num_workers=self.num_dataloader_workers,
+                          collate_fn=collate_fn_wrapper)
 
     def val_dataloader(self):
-        dataloaders = []
-        for val_dataset in self.val_datasets:
-            def collate_fn_wrapper(batch):
-                return self.collate_fn(batch, val_dataset)
+        def collate_fn_wrapper(batch):
+            return self.collate_fn(batch, self.valdatasets)
 
-            dataloaders.append(
-                DataLoader(
-                    val_dataset,
-                    batch_size=self.test_batch_size,
-                    num_workers=self.num_dataloader_workers,
-                    collate_fn=collate_fn_wrapper,
-                )
-            )
-        return dataloaders
+        return DataLoader(self.valdatasets,
+                          batch_size=self.batch_size,
+                          num_workers=self.num_dataloader_workers,
+                          collate_fn=collate_fn_wrapper)
+
     def test_dataloader(self):
         dataloaders = []
         for test_dataset in self.test_datasets:
-
             def collate_fn_wrapper(batch):
                 return self.collate_fn(batch, test_dataset)
 

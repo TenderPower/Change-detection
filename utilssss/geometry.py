@@ -131,8 +131,9 @@ def resize_image_and_annotations(input_image_as_tensor, output_shape_as_hw, anno
     Given an input image (and optionally its annotations), resize it to the specified output
     dimension.
     """
-    resize_augmentation = K.augmentation.Resize(output_shape_as_hw, return_transform=True)
-    resized_input_tensor, transformation = resize_augmentation(input_image_as_tensor)
+    resize_augmentation = K.augmentation.Resize(output_shape_as_hw)
+    resized_input_tensor = resize_augmentation(input_image_as_tensor)
+    transformation = resize_augmentation.transform_matrix
     resized_input_tensor = resized_input_tensor.squeeze()
     if annotations is None:
         return resized_input_tensor, None

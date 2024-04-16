@@ -5,22 +5,23 @@ from copy import deepcopy
 
 import kornia as K
 import numpy as np
+import torch
 from einops import rearrange
 from PIL import Image, PngImagePlugin
 from torch.utils.data import Dataset
 from torchvision.transforms.functional import pil_to_tensor
 
-import utils.general
-import utils.geometry
+import utilssss.general as general
+import utilssss.geometry as geometry
 from data.augmentation import AugmentationPipeline
-from utils.general import cache_data_triton
+from utilssss.general import cache_data_triton
 
 LARGE_ENOUGH_NUMBER = 100
-PngImagePlugin.MAX_TEXT_CHUNK = LARGE_ENOUGH_NUMBER * (1024**2)
+PngImagePlugin.MAX_TEXT_CHUNK = LARGE_ENOUGH_NUMBER * (1024 ** 2)
 
 
 class InpatinedCocoDataset(Dataset):
-    def __init__(self, path_to_dataset, split, method, image_transformation, machine="local"):
+    def __init__(self, depth_predictor, path_to_dataset, split, method, image_transformation, machine="local"):
         self.path_to_dataset = path_to_dataset
         train_val_test_split = self.get_train_val_test_split(split)
         self.indicies = train_val_test_split[split]
@@ -31,6 +32,7 @@ class InpatinedCocoDataset(Dataset):
             mode=split, path_to_dataset=path_to_dataset, image_transformation=image_transformation
         )
         self.marshal_getitem_data = self.import_method_specific_functions(method)
+        self.depth_predictor = depth_predictor
 
     def import_method_specific_functions(self, method):
         if method == "centernet":
@@ -40,11 +42,13 @@ class InpatinedCocoDataset(Dataset):
         return marshal_getitem_data
 
     def get_train_val_test_split(self, split):
-        train_val_test_split_file_path = os.path.join(self.path_to_dataset, "data_split.pkl")
+        train_val_test_split_file_path = os.path.join(self.path_to_dataset, "data_split_12000.pkl")
         if os.path.exists(train_val_test_split_file_path):
             with open(train_val_test_split_file_path, "rb") as file:
                 return pickle.load(file)
         indices_of_coco_images = np.load(os.path.join(self.path_to_dataset, "list_of_indices.npy"))
+        number_of_images = int(len(indices_of_coco_images) * 0.2)  # 12000
+        indices_of_coco_images = indices_of_coco_images[:number_of_images]
         np.random.shuffle(indices_of_coco_images)
         if split == "test":
             train_val_test_split = {
@@ -85,7 +89,7 @@ class InpatinedCocoDataset(Dataset):
             return 0
         bitmap_string = image_path.split("mask")[1].split(".")[0]
         if bitmap_string == "":
-            return (2**bit_length) - 1
+            return (2 ** bit_length) - 1
         return int(bitmap_string)
 
     def add_random_objects(self, image_as_tensor, item_index):
@@ -104,10 +108,10 @@ class InpatinedCocoDataset(Dataset):
         (
             original_image_resized_to_current,
             annotations_resized,
-        ) = utils.geometry.resize_image_and_annotations(
+        ) = geometry.resize_image_and_annotations(
             original_image, image_as_tensor.shape[-2:], annotations
         )
-        annotation_mask = utils.general.coco_annotations_to_mask_np_array(
+        annotation_mask = general.coco_annotations_to_mask_np_array(
             annotations_resized, image_as_tensor.shape[-2:]
         )
         image_as_tensor = rearrange(image_as_tensor, "c h w -> h w c")
@@ -188,9 +192,43 @@ class InpatinedCocoDataset(Dataset):
             index,
         )
 
+
+        depth1 = None
+        depth2 = None
+
+        depth_path = os.path.join(self.path_to_dataset, "depth")
+        if not os.path.exists(depth_path):
+            os.makedirs(depth_path)
+
+        depth1_file = os.path.join(depth_path, f"{index}_1.pt")
+        depth2_file = os.path.join(depth_path, f"{index}_2.pt")
+        # depth1
+        if os.path.isfile(depth1_file):
+            with open(depth1_file, "rb") as f:
+                depth1 = torch.load(f)
+        else:
+            # 对train 和 val 数据集进行测试depth并保存， 方便后续继续使用
+            # depth1 = self.depth_predictor.infer(image1_image_as_tensor).squeeze().squeeze()
+            depth1 = self.depth_predictor.eval(image1_image_as_tensor)
+
+            with open(depth1_file, "wb") as f:
+                torch.save(depth1, f)
+        # depth2
+        if os.path.isfile(depth2_file):
+            with open(depth2_file, "rb") as f:
+                depth2 = torch.load(f)
+        else:
+            # 对train 和 val 数据集进行测试depth并保存， 方便后续继续使用
+            # depth2 = self.depth_predictor.infer(image2_image_as_tensor).squeeze().squeeze()
+            depth2 = self.depth_predictor.eval(image2_image_as_tensor)
+            with open(depth2_file, "wb") as f:
+                torch.save(depth2, f)
         return {
             "image1": image1_image_as_tensor.squeeze(),
             "image2": image2_image_as_tensor.squeeze(),
             "image1_target_annotations": transformed_image1_target_annotations,
             "image2_target_annotations": transformed_image2_target_annotations,
+            "depth1": depth1,
+            "depth2": depth2,
+            'registration_strategy': "2d"
         }

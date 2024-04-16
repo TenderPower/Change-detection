@@ -12,7 +12,8 @@ from pytorch_lightning.utilities import rank_zero_only
 
 from data.datamodule import DataModule
 from models.centernet_with_coam import CenterNetWithCoAttention
-from utils.general import get_easy_dict_from_yaml_file
+from models.model import Model
+from utilssss.general import get_easy_dict_from_yaml_file
 
 from torchsummary import summary
 
@@ -51,7 +52,7 @@ def test(configs, model, logger, datamodule, checkpoint_path, callbacks=None):
 
 
 def get_logging_callback_manager(args):
-    if args.method == "centernet":
+    if args.method == "centernet" or args.method == "other":
         from models.centernet_with_coam import WandbCallbackManager
 
         return WandbCallbackManager(args)
@@ -73,6 +74,8 @@ if __name__ == "__main__":
     args, _ = parser.parse_known_args()
     if args.method == "centernet":
         parser = CenterNetWithCoAttention.add_model_specific_args(parser)
+    elif args.method == "other":
+        parser = Model.add_model_specific_args(parser)
     else:
         raise NotImplementedError(f"Unknown method type {args.method}")
 
@@ -91,7 +94,7 @@ if __name__ == "__main__":
             configs[key] = args[key]
 
     if configs.quick_prototype:
-        configs.limit_train_batches = 200
+        configs.limit_train_batches = 2
         configs.limit_val_batches = 1
         configs.limit_test_batches = 1
         configs.max_epochs = 1
@@ -103,6 +106,8 @@ if __name__ == "__main__":
     datamodule = DataModule(configs)
     if configs.method == "centernet":
         model = CenterNetWithCoAttention(configs)
+    else:
+        model = Model(configs)
 
     # 设置'spawn'启动方法
     # torch.multiprocessing.set_start_method('spawn')

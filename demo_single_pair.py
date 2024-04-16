@@ -12,7 +12,7 @@ from torchvision.transforms.functional import pil_to_tensor
 
 from data.datamodule import DataModule
 from models.centernet_with_coam import CenterNetWithCoAttention
-from utils.general import get_easy_dict_from_yaml_file
+from utilssss.general import get_easy_dict_from_yaml_file
 
 
 def import_dataloader_collate_fn(method):

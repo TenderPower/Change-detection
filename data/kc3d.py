@@ -17,13 +17,13 @@ from torchvision.ops import masks_to_boxes
 
 
 class KC3D(Dataset):
-    def __init__(self, path_to_dataset, split, method, use_ground_truth_registration=True):
+    def __init__(self, depth_predictor, path_to_dataset, split, method, use_ground_truth_registration=True):
         self.path_to_dataset = path_to_dataset
         self.data = self.get_data_info(path_to_dataset)
         self.indicies = self.data[split]
         self.split = split
 
-        len_train = len(self.data["train"])
+        len_train = int(len(self.data["train"]) * 0.2)
         len_val = len(self.data["val"])
         len_test = len(self.data["test"])
         self.use_ground_truth_registration = use_ground_truth_registration
@@ -102,7 +102,7 @@ class KC3D(Dataset):
             "registration_strategy": "3d",
             "image1_target_annotations": target_bbox_1,
             "image2_target_annotations": target_bbox_2,
-            "index": "_".join(scene["image1"].split("_")[:-1])
+            # "index": "_".join(scene["image1"].split("_")[:-1])
 
         }
 

@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from einops import rearrange
 
-import utils.geometry
+import utilssss.geometry as geometry
 
 
 class AugmentationPipeline(nn.Module):
@@ -99,7 +99,7 @@ class AugmentationPipeline(nn.Module):
         """
         image_shape_as_hw = image1_image_as_tensor.shape[-2:]
         segmentations_as_shapely_objects = (
-            utils.geometry.get_segmentation_as_shapely_polygons_from_coco_annotations(annotations)
+            geometry.get_segmentation_as_shapely_polygons_from_coco_annotations(annotations)
         )
         ############
         ## Step 1 ##
@@ -117,7 +117,7 @@ class AugmentationPipeline(nn.Module):
         ## Step 2 ##
         ############
         image1_segmentations_transformed = (
-            utils.geometry.apply_kornia_transformation_to_shapely_objects(
+            geometry.apply_kornia_transformation_to_shapely_objects(
                 segmentations_as_shapely_objects,
                 image1_image_transformation,
                 image_shape_as_hw,
@@ -125,7 +125,7 @@ class AugmentationPipeline(nn.Module):
             )
         )
         image2_segmentations_transformed = (
-            utils.geometry.apply_kornia_transformation_to_shapely_objects(
+            geometry.apply_kornia_transformation_to_shapely_objects(
                 segmentations_as_shapely_objects,
                 image2_image_transformation,
                 image_shape_as_hw,
@@ -139,7 +139,7 @@ class AugmentationPipeline(nn.Module):
         image2_image_inverse_transformation = torch.inverse(image2_image_transformation)
 
         image1_segmentations_transformed_inverted = (
-            utils.geometry.apply_kornia_transformation_to_shapely_objects(
+            geometry.apply_kornia_transformation_to_shapely_objects(
                 image1_segmentations_transformed,
                 image1_image_inverse_transformation,
                 image_shape_as_hw,
@@ -147,7 +147,7 @@ class AugmentationPipeline(nn.Module):
             )
         )
         image2_segmentations_transformed_inverted = (
-            utils.geometry.apply_kornia_transformation_to_shapely_objects(
+            geometry.apply_kornia_transformation_to_shapely_objects(
                 image2_segmentations_transformed,
                 image2_image_inverse_transformation,
                 image_shape_as_hw,
@@ -158,29 +158,29 @@ class AugmentationPipeline(nn.Module):
         for image1, image2 in zip(
             image1_segmentations_transformed_inverted, image2_segmentations_transformed_inverted
         ):
-            intersection_segmentation = utils.geometry.make_valid_polygon(
+            intersection_segmentation = geometry.make_valid_polygon(
                 image1.intersection(image2)
             )
             intersection_of_segmentations.append(intersection_segmentation)
         ############
         ## Step 4 ##
         ############
-        target_image1_segmentations = utils.geometry.apply_kornia_transformation_to_shapely_objects(
+        target_image1_segmentations = geometry.apply_kornia_transformation_to_shapely_objects(
             intersection_of_segmentations,
             image1_image_transformation,
             image_shape_as_hw,
             keep_empty=True,
         )
-        target_image2_segmentations = utils.geometry.apply_kornia_transformation_to_shapely_objects(
+        target_image2_segmentations = geometry.apply_kornia_transformation_to_shapely_objects(
             intersection_of_segmentations,
             image2_image_transformation,
             image_shape_as_hw,
             keep_empty=True,
         )
-        transformed_image1_annotations = utils.geometry.merge_shapely_polygons_into_annotations(
+        transformed_image1_annotations = geometry.merge_shapely_polygons_into_annotations(
             target_image1_segmentations, annotations
         )
-        transformed_image2_annotations = utils.geometry.merge_shapely_polygons_into_annotations(
+        transformed_image2_annotations = geometry.merge_shapely_polygons_into_annotations(
             target_image2_segmentations, annotations
         )
 
@@ -203,7 +203,7 @@ class AugmentationPipeline(nn.Module):
         colour jittering and annotations in the correct format.
         """
         segmentations_as_shapely_objects = (
-            utils.geometry.get_segmentation_as_shapely_polygons_from_coco_annotations(annotations)
+            geometry.get_segmentation_as_shapely_polygons_from_coco_annotations(annotations)
         )
         (image1_image_transformed, _) = self.kornia_augmentation_function(
             image1_image_as_tensor, "original", image_index
@@ -211,10 +211,10 @@ class AugmentationPipeline(nn.Module):
         (image2_image_transformed, _) = self.kornia_augmentation_function(
             image2_image_as_tensor, "inpainted", image_index
         )
-        transformed_image1_annotations = utils.geometry.merge_shapely_polygons_into_annotations(
+        transformed_image1_annotations = geometry.merge_shapely_polygons_into_annotations(
             segmentations_as_shapely_objects, annotations
         )
-        transformed_image2_annotations = utils.geometry.merge_shapely_polygons_into_annotations(
+        transformed_image2_annotations = geometry.merge_shapely_polygons_into_annotations(
             segmentations_as_shapely_objects, annotations
         )
         return (
@@ -235,7 +235,7 @@ class AugmentationPipeline(nn.Module):
         """
         image_shape_as_hw = image1_image_as_tensor.shape[-2:]
         segmentations_as_shapely_objects = (
-            utils.geometry.get_segmentation_as_shapely_polygons_from_coco_annotations(annotations)
+            geometry.get_segmentation_as_shapely_polygons_from_coco_annotations(annotations)
         )
         ############
         ## Step 1 ##
@@ -253,7 +253,7 @@ class AugmentationPipeline(nn.Module):
         ## Step 2 ##
         ############
         image1_segmentations_transformed = (
-            utils.geometry.apply_kornia_transformation_to_shapely_objects(
+            geometry.apply_kornia_transformation_to_shapely_objects(
                 segmentations_as_shapely_objects,
                 image1_image_transformation,
                 image_shape_as_hw,
@@ -261,7 +261,7 @@ class AugmentationPipeline(nn.Module):
             )
         )
         image2_segmentations_transformed = (
-            utils.geometry.apply_kornia_transformation_to_shapely_objects(
+            geometry.apply_kornia_transformation_to_shapely_objects(
                 segmentations_as_shapely_objects,
                 image2_image_transformation,
                 image_shape_as_hw,
@@ -290,7 +290,7 @@ class AugmentationPipeline(nn.Module):
         )
 
         image1_segmentations_transformed_inverted = (
-            utils.geometry.apply_kornia_transformation_to_shapely_objects(
+            geometry.apply_kornia_transformation_to_shapely_objects(
                 image1_segmentations_transformed,
                 image1_image_inverse_transformation,
                 image_shape_as_hw,
@@ -298,7 +298,7 @@ class AugmentationPipeline(nn.Module):
             )
         )
         image2_segmentations_transformed_inverted = (
-            utils.geometry.apply_kornia_transformation_to_shapely_objects(
+            geometry.apply_kornia_transformation_to_shapely_objects(
                 image2_segmentations_transformed,
                 image2_image_inverse_transformation,
                 image_shape_as_hw,
@@ -309,17 +309,17 @@ class AugmentationPipeline(nn.Module):
         for image1, image2 in zip(
             image1_segmentations_transformed_inverted, image2_segmentations_transformed_inverted
         ):
-            intersection_segmentation = utils.geometry.make_valid_polygon(
+            intersection_segmentation = geometry.make_valid_polygon(
                 image1.intersection(image2)
             )
             intersection_of_segmentations.append(intersection_segmentation)
         ############
         ## Step 4 ##
         ############
-        transformed_image1_annotations = utils.geometry.merge_shapely_polygons_into_annotations(
+        transformed_image1_annotations = geometry.merge_shapely_polygons_into_annotations(
             intersection_of_segmentations, annotations
         )
-        transformed_image2_annotations = utils.geometry.merge_shapely_polygons_into_annotations(
+        transformed_image2_annotations = geometry.merge_shapely_polygons_into_annotations(
             intersection_of_segmentations, annotations
         )
 

@@ -2,39 +2,46 @@ import torch
 import numpy as np
 import cv2
 import torch.nn as nn
+from einops import rearrange
 criterion_l2 = nn.MSELoss(reduce=True, size_average=True)
+
+from zoedepth.models.builder import build_model
+from zoedepth.utils.config import get_config
+
+
 def DLT_solve(src_p, off_set):
     # src_p: shape=(bs, n, 4, 2)
     # off_set: shape=(bs, n, 4, 2)
     # can be used to compute mesh points (multi-H)
-   
+
     bs, _ = src_p.shape
-    divide = int(np.sqrt(len(src_p[0])/2)-1)
-    row_num = (divide+1)*2
+    divide = int(np.sqrt(len(src_p[0]) / 2) - 1)
+    row_num = (divide + 1) * 2
 
     for i in range(divide):
         for j in range(divide):
 
-            h4p = src_p[:,[2*j+row_num*i, 2*j+row_num*i+1, 
-                    2*(j+1)+row_num*i, 2*(j+1)+row_num*i+1, 
-                    2*(j+1)+row_num*i+row_num, 2*(j+1)+row_num*i+row_num+1,
-                    2*j+row_num*i+row_num, 2*j+row_num*i+row_num+1]].reshape(bs, 1, 4, 2)  
-            
-            pred_h4p = off_set[:,[2*j+row_num*i, 2*j+row_num*i+1, 
-                    2*(j+1)+row_num*i, 2*(j+1)+row_num*i+1, 
-                    2*(j+1)+row_num*i+row_num, 2*(j+1)+row_num*i+row_num+1,
-                    2*j+row_num*i+row_num, 2*j+row_num*i+row_num+1]].reshape(bs, 1, 4, 2)
+            h4p = src_p[:, [2 * j + row_num * i, 2 * j + row_num * i + 1,
+                            2 * (j + 1) + row_num * i, 2 * (j + 1) + row_num * i + 1,
+                            2 * (j + 1) + row_num * i + row_num, 2 * (j + 1) + row_num * i + row_num + 1,
+                            2 * j + row_num * i + row_num, 2 * j + row_num * i + row_num + 1]].reshape(bs, 1, 4, 2)
 
-            if i+j==0:
+            pred_h4p = off_set[:, [2 * j + row_num * i, 2 * j + row_num * i + 1,
+                                   2 * (j + 1) + row_num * i, 2 * (j + 1) + row_num * i + 1,
+                                   2 * (j + 1) + row_num * i + row_num, 2 * (j + 1) + row_num * i + row_num + 1,
+                                   2 * j + row_num * i + row_num, 2 * j + row_num * i + row_num + 1]].reshape(bs, 1, 4,
+                                                                                                              2)
+
+            if i + j == 0:
                 src_ps = h4p
                 off_sets = pred_h4p
             else:
-                src_ps = torch.cat((src_ps, h4p), axis = 1)    
-                off_sets = torch.cat((off_sets, pred_h4p), axis = 1)
+                src_ps = torch.cat((src_ps, h4p), axis=1)
+                off_sets = torch.cat((off_sets, pred_h4p), axis=1)
 
     bs, n, h, w = src_ps.shape
 
-    N = bs*n
+    N = bs * n
 
     src_ps = src_ps.reshape(N, h, w)
     off_sets = off_sets.reshape(N, h, w)
@@ -52,7 +59,7 @@ def DLT_solve(src_p, off_set):
     xyu, xyd = torch.cat((xy1, zeros), 2), torch.cat((zeros, xy1), 2)
     M1 = torch.cat((xyu, xyd), 2).reshape(N, -1, 6)
     M2 = torch.matmul(
-        dst_p.reshape(-1, 2, 1), 
+        dst_p.reshape(-1, 2, 1),
         src_ps.reshape(-1, 1, 2),
     ).reshape(N, -1, 2)
 
@@ -61,12 +68,12 @@ def DLT_solve(src_p, off_set):
 
     Ainv = torch.inverse(A)
     h8 = torch.matmul(Ainv, b).reshape(N, 8)
- 
-    H = torch.cat((h8, ones[:,0,:]), 1).reshape(N, 3, 3)
+
+    H = torch.cat((h8, ones[:, 0, :]), 1).reshape(N, 3, 3)
     H = H.reshape(bs, n, 3, 3)
     return H
 
- 
+
 def transformer(U, theta, out_size, **kwargs):
     """Spatial Transformer Layer
 
@@ -108,12 +115,12 @@ def transformer(U, theta, out_size, **kwargs):
         rep = rep.int()
         x = x.int()
 
-        x = torch.matmul(x.reshape([-1,1]), rep)
+        x = torch.matmul(x.reshape([-1, 1]), rep)
         return x.reshape([-1])
 
     def _interpolate(im, x, y, out_size, scale_h):
 
-        num_batch, num_channels , height, width = im.size()
+        num_batch, num_channels, height, width = im.size()
 
         height_f = height
         width_f = width
@@ -123,8 +130,7 @@ def transformer(U, theta, out_size, **kwargs):
         max_y = height - 1
         max_x = width - 1
         if scale_h:
-
-            x = (x + 1.0)*(width_f) / 2.0
+            x = (x + 1.0) * (width_f) / 2.0
             y = (y + 1.0) * (height_f) / 2.0
 
         # do sampling
@@ -137,10 +143,10 @@ def transformer(U, theta, out_size, **kwargs):
         x1 = torch.clamp(x1, zero, max_x)
         y0 = torch.clamp(y0, zero, max_y)
         y1 = torch.clamp(y1, zero, max_y)
-        dim2 = torch.from_numpy( np.array(width) )
-        dim1 = torch.from_numpy( np.array(width * height) )
+        dim2 = torch.from_numpy(np.array(width))
+        dim1 = torch.from_numpy(np.array(width * height))
 
-        base = _repeat(torch.arange(0,num_batch) * dim1, out_height * out_width)
+        base = _repeat(torch.arange(0, num_batch) * dim1, out_height * out_width)
         if torch.cuda.is_available():
             dim2 = dim2.cuda()
             dim1 = dim1.cuda()
@@ -157,11 +163,11 @@ def transformer(U, theta, out_size, **kwargs):
         idx_d = base_y1 + x1
 
         # channels dim
-        im = im.permute(0,2,3,1)
+        im = im.permute(0, 2, 3, 1)
         im_flat = im.reshape([-1, num_channels]).float()
 
         idx_a = idx_a.unsqueeze(-1).long()
-        idx_a = idx_a.expand(height * width * num_batch,num_channels)
+        idx_a = idx_a.expand(height * width * num_batch, num_channels)
         Ia = torch.gather(im_flat, 0, idx_a)
 
         idx_b = idx_b.unsqueeze(-1).long()
@@ -185,7 +191,7 @@ def transformer(U, theta, out_size, **kwargs):
         wb = torch.unsqueeze(((x1_f - x) * (y - y0_f)), 1)
         wc = torch.unsqueeze(((x - x0_f) * (y1_f - y)), 1)
         wd = torch.unsqueeze(((x - x0_f) * (y - y0_f)), 1)
-        output = wa*Ia+wb*Ib+wc*Ic+wd*Id
+        output = wa * Ia + wb * Ib + wc * Ic + wd * Id
 
         return output
 
@@ -202,7 +208,6 @@ def transformer(U, theta, out_size, **kwargs):
             y_t = torch.matmul(torch.unsqueeze(torch.linspace(0.0, height.float(), height), 1),
                                torch.ones([1, width]))
 
-
         x_t_flat = x_t.reshape((1, -1)).float()
         y_t_flat = y_t.reshape((1, -1)).float()
 
@@ -213,27 +218,27 @@ def transformer(U, theta, out_size, **kwargs):
         return grid
 
     def _transform(theta, input_dim, out_size, scale_h):
-        num_batch, num_channels , height, width = input_dim.size()
+        num_batch, num_channels, height, width = input_dim.size()
         #  Changed
         theta = theta.reshape([-1, 3, 3]).float()
 
         out_height, out_width = out_size[0], out_size[1]
         grid = _meshgrid(out_height, out_width, scale_h)
-        grid = grid.unsqueeze(0).reshape([1,-1])
+        grid = grid.unsqueeze(0).reshape([1, -1])
         shape = grid.size()
-        grid = grid.expand(num_batch,shape[1])
+        grid = grid.expand(num_batch, shape[1])
         grid = grid.reshape([num_batch, 3, -1])
 
         T_g = torch.matmul(theta, grid)
-        x_s = T_g[:,0,:]
-        y_s = T_g[:,1,:]
-        t_s = T_g[:,2,:]
+        x_s = T_g[:, 0, :]
+        y_s = T_g[:, 1, :]
+        t_s = T_g[:, 2, :]
 
         t_s_flat = t_s.reshape([-1])
 
         # smaller
         small = 1e-7
-        smallers = 1e-6*(1.0 - torch.ge(torch.abs(t_s_flat), small).float())
+        smallers = 1e-6 * (1.0 - torch.ge(torch.abs(t_s_flat), small).float())
 
         t_s_flat = t_s_flat + smallers
         condition = torch.sum(torch.gt(torch.abs(t_s_flat), small).float())
@@ -241,9 +246,9 @@ def transformer(U, theta, out_size, **kwargs):
         x_s_flat = x_s.reshape([-1]) / t_s_flat
         y_s_flat = y_s.reshape([-1]) / t_s_flat
 
-        input_transformed = _interpolate( input_dim, x_s_flat, y_s_flat,out_size,scale_h)
+        input_transformed = _interpolate(input_dim, x_s_flat, y_s_flat, out_size, scale_h)
 
-        output = input_transformed.reshape([num_batch, out_height, out_width, num_channels ])
+        output = input_transformed.reshape([num_batch, out_height, out_width, num_channels])
         return output, condition
 
     img_w = U.size()[2]
@@ -254,7 +259,7 @@ def transformer(U, theta, out_size, **kwargs):
     return output, condition
 
 
-def transform(M_tile_inv,H_mat,M_tile,I1):
+def transform(M_tile_inv, H_mat, M_tile, I1):
     # patch_indices,batch_indices_tensor这两个用于将原img变换成patch
     # Transform H_mat since we scale image indices in transformer
     batch_size, num_channels, img_h, img_w = I1.size()
@@ -265,20 +270,20 @@ def transform(M_tile_inv,H_mat,M_tile,I1):
     out_size = (img_h, img_w)
     warped_images, _ = transformer(I1, H_mat, out_size)
 
+    return warped_images.permute(0, 3, 1, 2)
 
-    return warped_images.permute(0,3,1,2)
 
 def getBatchHLoss(H, H_inv):
     batch_size = H.size()[0]
     Identity = torch.eye(3)
     if torch.cuda.is_available():
         Identity = Identity.cuda()
-    Identity = Identity.unsqueeze(0).expand(batch_size,3,3)
+    Identity = Identity.unsqueeze(0).expand(batch_size, 3, 3)
     return criterion_l2(H.bmm(H_inv), Identity)
 
 
-def display_using_tensorboard(I, I2_ori_img, I2, pred_I2, I2_dataMat_CnnFeature, pred_I2_dataMat_CnnFeature, triMask, loss_map, writer):
-
+def display_using_tensorboard(I, I2_ori_img, I2, pred_I2, I2_dataMat_CnnFeature, pred_I2_dataMat_CnnFeature, triMask,
+                              loss_map, writer):
     I1_ori_img = cv2.normalize(I.cpu().detach().numpy()[0, 0, ...], None, 0, 255, cv2.NORM_MINMAX,
                                cv2.CV_8U)
     I2_ori_img_ = cv2.normalize(I2_ori_img.cpu().detach().numpy()[0, 0, ...], None, 0, 255, cv2.NORM_MINMAX,
@@ -334,3 +339,34 @@ def display_using_tensorboard(I, I2_ori_img, I2, pred_I2, I2_dataMat_CnnFeature,
                      dataformats='HW')
 
 
+@torch.no_grad()
+def fill_in_the_missing_information(batch, correspondence_extractor, depth_predictor):
+
+    for i in range(len(batch["left_image"])):
+        # if batch["registration_strategy"][i] in ["3d", None]:
+        assert (batch["depth1"][i] is None) == (batch["depth2"][i] is None)
+        if batch["depth1"][i] is None and batch["depth2"][i] is None:
+            batch["depth1"][i] = depth_predictor.eval(batch["left_image"][i].unsqueeze(0)).squeeze()
+            batch["depth2"][i] = depth_predictor.eval(batch["right_image"][i].unsqueeze(0)).squeeze()
+            # batch["depth1"][i] = depth_predictor.infer(batch["left_image"][i].unsqueeze(0)).squeeze()
+            # batch["depth2"][i] = depth_predictor.infer(batch["right_image"][i].unsqueeze(0)).squeeze()
+
+    # 对depth进行
+    # batch['depth1'] = rearrange(batch['depth1'], "... -> ...")
+    # batch['depth2'] = rearrange(batch['depth2'], "... -> ...")
+    batch = correspondence_extractor.alignImage(batch)
+    return batch
+
+@torch.no_grad()
+def fill_in_the_missing_information_(batch, depth_predictor):
+    # 当depth 存在是不需要做出了
+    for i in range(len(batch["left_image"])):
+        if batch["registration_strategy"][i] == "3d":
+            assert (batch["depth1"][i] is None) == (batch["depth2"][i] is None)
+            if batch["depth1"][i] is None and batch["depth2"][i] is None:
+                batch["depth1"][i] = depth_predictor.eval(batch["left_image"][i].unsqueeze(0)).squeeze()
+                batch["depth2"][i] = depth_predictor.eval(batch["right_image"][i].unsqueeze(0)).squeeze()
+    # # 对depth进行
+    # batch['depth1'] = rearrange(batch['depth1'], "... -> ...")
+    # batch['depth2'] = rearrange(batch['depth2'], "... -> ...")
+    return batch

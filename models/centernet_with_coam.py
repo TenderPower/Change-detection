@@ -11,26 +11,21 @@ from loguru import logger as L
 from mmdet.models.dense_heads.centernet_head import CenterNetHead
 from pytorch_lightning.utilities import rank_zero_only
 from einops import rearrange
-import utils.general
 from data.datamodule import DataModule
-from models.coattention import CoAttentionModule
-# from segmentation_models_pytorch.unet.model import Unet
 from models.unet import Unet
-from utils.voc_eval import BoxList, eval_detection_voc
+from utilssss.utils import fill_in_the_missing_information
+from utilssss.voc_eval import BoxList, eval_detection_voc
 from models.middle import BackLayers, FrontLayers
 from models.test__ import alignImage
+import utilssss.geometry as geometry
 
 plt.ioff()
-from torchvision.ops import box_iou
-from torchvision.utils import save_image, draw_bounding_boxes
-import os
 import cv2
-import utils.general as general
-import utils
-import utils.alignment as algin
+import utilssss.general as general
+
+import utilssss.alignment as algin
 from PIL import Image, PngImagePlugin
 from torchvision.transforms.functional import pil_to_tensor
-from models.registeration_module import FeatureRegisterationModule
 
 
 class CenterNetWithCoAttention(pl.LightningModule):
@@ -339,14 +334,95 @@ class CenterNetWithCoAttention(pl.LightningModule):
         )
 
 
+def resize_other(batch, reg_other):
+    for i in range(len(batch['left_image'])):
+        # 说明是2d相关的resize方式
+        if reg_other[i]:
+            (
+                batch["left_image"][i],
+                target_region_and_annotations,
+            ) = geometry.resize_image_and_annotations(
+                batch["left_image"][i],
+                output_shape_as_hw=(224, 224),
+                annotations=batch["image1_target_annotations"][i],
+            )
+            batch["image1_target_annotations"][i] = target_region_and_annotations
+            (
+                batch["right_image"][i],
+                target_region_and_annotations,
+            ) = geometry.resize_image_and_annotations(
+                batch["right_image"][i],
+                output_shape_as_hw=(224, 224),
+                annotations=batch["image2_target_annotations"][i],
+            )
+            batch["image2_target_annotations"][i] = target_region_and_annotations
+            image1_target_bboxes = torch.Tensor([x["bbox"] for x in batch["image1_target_annotations"][i]])
+            image2_target_bboxes = torch.Tensor([x["bbox"] for x in batch["image2_target_annotations"][i]])
+            batch["left_image_target_bboxes"][i] = image1_target_bboxes
+            batch["right_image_target_bboxes"][i] = image2_target_bboxes
+            batch["target_bbox_labels"][i] = torch.zeros(len(image1_target_bboxes)).long()
+
+    return batch
+
+
+def resize_3d(batch, reg_3d):
+    nearest_resize = K.augmentation.Resize((224, 224), resample=0, align_corners=None, keepdim=True)
+    bicubic_resize = K.augmentation.Resize((224, 224), resample=2, keepdim=True)
+    for i in range(len(batch['left_image'])):
+        # 说明是2d相关的resize方式
+        if reg_3d[i]:
+            original_hw1 = batch["left_image"][i].shape[-2:]
+            original_hw2 = batch["right_image"][i].shape[-2:]
+            # 我先不进行图像的正则化 （因为，对3d进行正则化，还需要对2d进行正则化）
+            batch["image1_target_annotations"][i] = resize_bbox(batch["image1_target_annotations"][i], original_hw1,
+                                                                (224, 224))
+            batch["image2_target_annotations"][i] = resize_bbox(batch["image2_target_annotations"][i], original_hw2,
+                                                                (224, 224))
+
+            batch["left_image"] = bicubic_resize(batch["left_image"][i])
+            batch["right_image"] = bicubic_resize(batch["right_image"][i])
+
+            if batch["depth1"][i] is not None:
+                original_depth_hw1 = batch["depth1"][i].shape[-2:]
+                batch["depth1"][i] = nearest_resize(batch["depth1"][i])
+            if batch["depth2"][i] is not None:
+                original_depth_hw2 = batch["depth2"][i].shape[-2:]
+                batch["depth2"][i] = nearest_resize(batch["depth2"][i])
+            if batch["intrinsics1"][i] is not None:
+                assert original_hw1 == original_depth_hw1
+                transformation = nearest_resize.transform_matrix.squeeze()
+                transformation = convert_kornia_transformation_matrix_to_normalised_coordinates(transformation,
+                                                                                                original_hw1,
+                                                                                                (224, 224))
+                batch["intrinsics1"][i] = transformation @ batch["intrinsics1"][i]
+            if batch["intrinsics2"][i] is not None:
+                assert original_hw2 == original_depth_hw2
+                transformation = nearest_resize.transform_matrix.squeeze()
+                transformation = convert_kornia_transformation_matrix_to_normalised_coordinates(transformation,
+                                                                                                original_hw2,
+                                                                                                (224, 224))
+                batch["intrinsics2"][i] = transformation @ batch["intrinsics2"][i]
+    return batch
+
+
+def prepare_batch_for_model_all(batch):
+    # 前提已经统一了标准
+    # batch标准的
+    reg_3d = [s == "3d" for s in batch["registration_strategy"]]
+    reg_other = [s != "3d" for s in batch["registration_strategy"]]
+    batch = resize_other(batch, reg_other)
+    batch = resize_3d(batch, reg_3d)
+    return batch
+
+
 def marshal_getitem_data(data, split):
+    # 对不同数据集中的数据进行统一格式
     """
     The data field above is returned by the individual datasets.
     This function marshals that data into the format expected by this
     model/method.
     """
 
-    # ----------------------3D--------------------------
     def create_sanity_data(data):
         data_ = {}
         all_keys = [
@@ -363,7 +439,6 @@ def marshal_getitem_data(data, split):
             "rotation1",
             "rotation2",
             "registration_strategy",
-            "index"
         ]
         for key in all_keys:
             value = data.get(key, None)
@@ -373,94 +448,107 @@ def marshal_getitem_data(data, split):
             data_[key] = value
         return data_
 
+    # 统一格式
+    data = create_sanity_data(data)
+
+    return {
+        "left_image": data["image1"],
+        "right_image": data["image2"],
+        "left_image_target_bboxes": None,
+        "right_image_target_bboxes": None,
+        "target_bbox_labels": None,
+        "image1_target_annotations": data["image1_target_annotations"],
+        "image2_target_annotations": data["image2_target_annotations"],
+        "registration_strategy": data['registration_strategy'],
+        "depth1": data["depth1"],
+        "depth2": data["depth2"],
+        "intrinsics1": data["intrinsics1"],
+        "intrinsics2": data["intrinsics2"],
+        "position1": data["position1"],
+        "position2": data["position2"],
+        "rotation1": data["rotation1"],
+        "rotation2": data["rotation2"],
+        "query_metadata": {
+            "pad_shape": data["image1"].shape[-2:],
+            "border": np.array([0, 0, 0, 0]),
+            "batch_input_shape": data["image1"].shape[-2:],
+        },
+    }
     # -------------------END---------------------------
-    if split in ["train", "val", "test"]:
-        # 对3d图片
-        if 'registration_strategy' in data:
-            data = create_sanity_data(data)
-            #     进行resize--貌似不需要
-            data = prepare_batch_for_model(data)
+    # if split in ["train", "val", "test"]:
+    #     # 不管是3d还是2d  都进行batch的参数补全
+    #
+    #     # Resize
+    #     if data['registration_strategy'] == "3d":
+    #         #     进行resize--貌似不需要
+    #         data = prepare_batch_for_model(data)
+    #     # 对2d图片进行resize
+    #     else:
+    #         # 对已有的depth进行resize
+    #         data = resize_depth(data)
+    #         (
+    #             data["image1"],
+    #             target_region_and_annotations,
+    #         ) = geometry.resize_image_and_annotations(
+    #             data["image1"],
+    #             output_shape_as_hw=(224, 224),
+    #             annotations=data["image1_target_annotations"],
+    #         )
+    #         data["image1_target_annotations"] = target_region_and_annotations
+    #         (
+    #             data["image2"],
+    #             target_region_and_annotations,
+    #         ) = geometry.resize_image_and_annotations(
+    #             data["image2"],
+    #             output_shape_as_hw=(224, 224),
+    #             annotations=data["image2_target_annotations"],
+    #         )
+    #         data["image2_target_annotations"] = target_region_and_annotations
+    #
+    # assert data["image1"].shape == data["image2"].shape
+    # if data['registration_strategy'] == "3d":
+    #     image1_target_bboxes = data["image1_target_annotations"]
+    #     image2_target_bboxes = data["image2_target_annotations"]
+    # else:
+    #     image1_target_bboxes = torch.Tensor([x["bbox"] for x in data["image1_target_annotations"]])
+    #     image2_target_bboxes = torch.Tensor([x["bbox"] for x in data["image2_target_annotations"]])
+    #
+    # if len(image1_target_bboxes) != len(image2_target_bboxes) or len(image1_target_bboxes) == 0:
+    #     return None
+    #
+    # # 图片变化--使用的是传统对齐
+    # # image1_to_image2 = alignimage(data["image1"], data["image2"])
+    # # image2_to_image1 = alignimage(data["image2"], data["image1"])
+    # # 使用模型
+    # # image1_to_image2, image2_to_image1 = alignImage(data["image1"], data["image2"])
+    #
+    # # ----------------------既然开头已经把key都补全了，直接返回补全的就行--------------------------
+    # return {
+    #     "left_image": data["image1"],
+    #     "right_image": data["image2"],
+    #     "left_image_target_bboxes": image1_target_bboxes,
+    #     "right_image_target_bboxes": image2_target_bboxes,
+    #     "target_bbox_labels": torch.zeros(len(image1_target_bboxes)).long(),
+    #     "registration_strategy": data['registration_strategy'],
+    #     "depth1": data["depth1"],
+    #     "depth2": data["depth2"],
+    #     "intrinsics1": data["intrinsics1"],
+    #     "intrinsics2": data["intrinsics2"],
+    #     "position1": data["position1"],
+    #     "position2": data["position2"],
+    #     "rotation1": data["rotation1"],
+    #     "rotation2": data["rotation2"],
+    #     "query_metadata": {
+    #         "pad_shape": data["image1"].shape[-2:],
+    #         "border": np.array([0, 0, 0, 0]),
+    #         "batch_input_shape": data["image1"].shape[-2:],
+    #     },
+    #     # "index": data["index"]
+    # }
+
+    # 使用的是传统对齐
 
 
-        # 对2d图片进行resize
-        else:
-            (
-                data["image1"],
-                target_region_and_annotations,
-            ) = utils.geometry.resize_image_and_annotations(
-                data["image1"],
-                output_shape_as_hw=(256, 256),
-                annotations=data["image1_target_annotations"],
-            )
-            data["image1_target_annotations"] = target_region_and_annotations
-            (
-                data["image2"],
-                target_region_and_annotations,
-            ) = utils.geometry.resize_image_and_annotations(
-                data["image2"],
-                output_shape_as_hw=(256, 256),
-                annotations=data["image2_target_annotations"],
-            )
-            data["image2_target_annotations"] = target_region_and_annotations
-
-    assert data["image1"].shape == data["image2"].shape
-    if 'registration_strategy' in data:
-        image1_target_bboxes = data["image1_target_annotations"]
-        image2_target_bboxes = data["image2_target_annotations"]
-    else:
-        image1_target_bboxes = torch.Tensor([x["bbox"] for x in data["image1_target_annotations"]])
-        image2_target_bboxes = torch.Tensor([x["bbox"] for x in data["image2_target_annotations"]])
-
-    if len(image1_target_bboxes) != len(image2_target_bboxes) or len(image1_target_bboxes) == 0:
-        return None
-
-    # 图片变化--使用的是传统对齐
-    # image1_to_image2 = alignimage(data["image1"], data["image2"])
-    # image2_to_image1 = alignimage(data["image2"], data["image1"])
-    # 使用模型
-    # image1_to_image2, image2_to_image1 = alignImage(data["image1"], data["image2"])
-
-    # ----------------------3D--------------------------
-    if 'registration_strategy' in data:
-        return {
-            "left_image": data["image1"],
-            "right_image": data["image2"],
-            "left_image_target_bboxes": image1_target_bboxes,
-            "right_image_target_bboxes": image2_target_bboxes,
-            "target_bbox_labels": torch.zeros(len(image1_target_bboxes)).long(),
-            "registration_strategy": data['registration_strategy'],
-            "depth1": data["depth1"],
-            "depth2": data["depth2"],
-            "intrinsics1": data["intrinsics1"],
-            "intrinsics2": data["intrinsics2"],
-            "position1": data["position1"],
-            "position2": data["position2"],
-            "rotation1": data["rotation1"],
-            "rotation2": data["rotation2"],
-            "query_metadata": {
-                "pad_shape": data["image1"].shape[-2:],
-                "border": np.array([0, 0, 0, 0]),
-                "batch_input_shape": data["image1"].shape[-2:],
-            },
-            "index": data["index"]
-        }
-    # -------------------END---------------------------
-    else:
-        return {
-            "left_image": data["image1"],
-            "right_image": data["image2"],
-            "left_image_target_bboxes": image1_target_bboxes,
-            "right_image_target_bboxes": image2_target_bboxes,
-            "target_bbox_labels": torch.zeros(len(image1_target_bboxes)).long(),
-            "query_metadata": {
-                "pad_shape": data["image1"].shape[-2:],
-                "border": np.array([0, 0, 0, 0]),
-                "batch_input_shape": data["image1"].shape[-2:],
-            },
-        }
-
-
-# 使用的是传统对齐
 def alignimage(image1_tensor, image2_tensor):
     # plt
     image1_plt = general.tensor_to_PIL(image1_tensor)
@@ -521,15 +609,25 @@ def resize_bbox(bboxes, original_size, new_size):
     return resized_bboxes
 
 
+def resize_depth(data):
+    nearest_resize = K.augmentation.Resize((224, 224), resample=0, align_corners=None, keepdim=True)
+    if data["depth1"] is not None:
+        data["depth1"] = nearest_resize(data["depth1"])
+    if data["depth2"] is not None:
+        data["depth2"] = nearest_resize(data["depth2"])
+    return data
+
+
+# 这个是处理单个数据的，不是处理batch的
 def prepare_batch_for_model(data):
-    nearest_resize = K.augmentation.Resize((256, 256), resample=0, align_corners=None, keepdim=True)
-    bicubic_resize = K.augmentation.Resize((256, 256), resample=2, keepdim=True)
+    nearest_resize = K.augmentation.Resize((224, 224), resample=0, align_corners=None, keepdim=True)
+    bicubic_resize = K.augmentation.Resize((224, 224), resample=2, keepdim=True)
 
     original_hw1 = data["image1"].shape[-2:]
     original_hw2 = data["image2"].shape[-2:]
 
-    data["image1_target_annotations"] = resize_bbox(data["image1_target_annotations"], original_hw1, (256, 256))
-    data["image2_target_annotations"] = resize_bbox(data["image2_target_annotations"], original_hw2, (256, 256))
+    data["image1_target_annotations"] = resize_bbox(data["image1_target_annotations"], original_hw1, (224, 224))
+    data["image2_target_annotations"] = resize_bbox(data["image2_target_annotations"], original_hw2, (224, 224))
 
     data["image1"] = bicubic_resize(data["image1"])
     data["image2"] = bicubic_resize(data["image2"])
@@ -554,11 +652,38 @@ def prepare_batch_for_model(data):
     return data
 
 
-def dataloader_collate_fn(batch, test):
+def create_batch_from_metadata(metadata):
+    batch = {}
+    all_keys = list(metadata[0].keys())
+    for key in all_keys:
+        batch[key] = []
+    for item in metadata:
+        for key in all_keys:
+            value = item.get(key, None)
+            if value is None:
+                batch[key].append(None)
+                continue
+            batch[key].append(value)
+
+    return batch
+
+
+def dataloader_collate_fn(batch, test, depth_predictor):
     """
     Defines the collate function for the dataloader specific to this
     method/model.
     """
+    # 需要进行List转batch
+    batch = create_batch_from_metadata(batch)
+
+    # 先统一格式（在单个data时已经完成了处理，只是没有进行resize 和 gt赋值）
+    # 再进行物理对齐 + 获取keypoints（以batch标准进行）
+    #     进行对齐操作+ 获取每个图的depth信息
+    batch = fill_in_the_missing_information(batch, test, depth_predictor)
+    # 最后再resize
+    batch = prepare_batch_for_model_all(batch)
+
+    # 这个好像单纯是保证放入模型的数据
     keys = batch[0].keys()
     collated_dictionary = {}
     for key in keys:
@@ -579,16 +704,14 @@ def dataloader_collate_fn(batch, test):
             "rotation1",
             "rotation2",
             "registration_strategy",
-            "index",
+            # "index",
         ]:
             continue
         collated_dictionary[key] = ImageList.from_tensors(
             collated_dictionary[key], size_divisibility=32
         ).tensor
-    collated_dictionary = test.alignImage(collated_dictionary)
-    # if 'registration_strategy' in collated_dictionary:
-    #     register = FeatureRegisterationModule()
-    #     collated_dictionary = register.func(collated_dictionary)
+
+    # collated_dictionary = test.alignImage(collated_dictionary)
     return collated_dictionary
 
 
@@ -596,7 +719,6 @@ def dataloader_collate_fn(batch, test):
 ## The callback manager below handles logging ##
 ## to Weights And Biases.                     ##
 ################################################
-
 
 class WandbCallbackManager(pl.Callback):
     def __init__(self, args):

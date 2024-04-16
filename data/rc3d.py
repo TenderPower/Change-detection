@@ -10,7 +10,7 @@ from torch.utils.data import ConcatDataset, Dataset
 from torchvision.transforms.functional import pil_to_tensor
 
 
-def RC3D(path_to_dataset, split, method, use_gt_depth=True):
+def RC3D(depth_predictor, path_to_dataset, split, method, use_gt_depth=True):
     parts = ["part1", "part2", "part3", "part4"]
     datasets = [SubDataset(os.path.join(path_to_dataset, part), split, method, use_gt_depth) for part in parts]
     return ConcatDataset(datasets)
@@ -70,7 +70,6 @@ class SubDataset(Dataset):
         target_bbox_2 = self.annotations2[item_index]
         target_bbox_2[2] += target_bbox_2[0]
         target_bbox_2[3] += target_bbox_2[1]
-
         data = {
             "image1": image1_as_tensor,
             "image2": image2_as_tensor,
@@ -87,6 +86,17 @@ class SubDataset(Dataset):
             data["depth1"] = depth1
             data["depth2"] = depth2
 
+        # 先默认导入当前的图片
+        # demo_data/depth_ship_0.png
+        image1_as_tensor = self.read_image_as_tensor(os.path.join('demo_data', 'ship_0.jpg'))
+        image2_as_tensor = self.read_image_as_tensor(os.path.join('demo_data', 'ship_2.jpg'))
+        data = {
+            "image1": image1_as_tensor,
+            "image2": image2_as_tensor,
+            "registration_strategy": "3d",
+            "image1_target_annotations": torch.tensor([target_bbox_1]),
+            "image2_target_annotations": torch.tensor([target_bbox_2]),
+        }
         return self.marshal_getitem_data(data, self.split)
 
 

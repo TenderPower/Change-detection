@@ -12,11 +12,11 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms.functional import pil_to_tensor
 
-import utils.geometry
+import utilssss.geometry as geometry
 
 
 class SynthTextDataset(Dataset):
-    def __init__(self, path_to_dataset, split, method, image_transformation="identity"):
+    def __init__(self, depth_predictor, path_to_dataset, split, method, image_transformation="identity"):
         assert split == "test"
         self.split = split
         self.path_to_dataset = path_to_dataset
@@ -100,7 +100,7 @@ class SynthTextDataset(Dataset):
             annotation["bbox"] = bbox
             annotation[
                 "segmentation"
-            ] = utils.geometry.convert_shapely_polygon_into_coco_segmentation(
+            ] = geometry.convert_shapely_polygon_into_coco_segmentation(
                 shapely.geometry.box(*bbox)
             )
         return image_as_tensor.squeeze(), annotations
@@ -152,4 +152,5 @@ class SynthTextDataset(Dataset):
             "image2": synth_image_as_tensor.squeeze(),
             "image1_target_annotations": target_annotations_1,
             "image2_target_annotations": target_annotations_2,
+            "registration_strategy": "2d"
         }

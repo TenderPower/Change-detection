@@ -1,40 +1,64 @@
-encoder: resnet50
-attention: homo
-#coam_layer_data: [3, [2048, 1024, 512], [256, 128, 64]]
-#coam_layer_data: [ 3, 4, 3, 1, [ 2048, 1024, 512], [ 256, 128, 64], [ 4, 8, 16, 32, 64 ] ]
-coam_layer_data: [ 5, 4, _, _, [ 2048, 1024, 512, 256, 64 ], [ ], [ ] ]
-lr: 0.0001
-weight_decay: 0.0005
-batch_size: 16
-test_batch_size: 16
+vit_feature_layers: [2, 11]
+encoder:
+  stride: 4
+  patch: 8
+  keep_cls_in_seq2spatial: False
+  output_dim: 768
+decoder:
+  downsampling_blocks: [[768, 512], [512, 512], [512, 512], [512, 512]]
+  encoder_channels: [0, 768, 512, 512, 512, 512]
+  decoder_channels: [256, 256, 128, 128, 64]
+batch_size: 8
 num_dataloader_workers: 8
+lr: 0.0001
+imagenet_normalisation: True
+weight_decay: 0.0005
+test_batch_size: 4
 datasets:
-  train_dataset:
-    name: coco_train
-    class: InpatinedCocoDataset
-    args:
-      path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/train
-      split: "train"
-      method: "centernet"
-      image_transformation: "affine"
-  val_dataset:
-    name: coco_val
-    class: InpatinedCocoDataset
-    args:
-      path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/train
-      split: "val"
-      method: "centernet"
-      image_transformation: "affine"
-  test_datasets:
-    - name: kubric
-      class: KubricChange
+  train_datasets:
+    - name: coco_train
+      class: InpatinedCocoDataset
       args:
-        path_to_dataset: /home/ygk/disk/datas/data/kubric-change
-        split: "test"
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/train
+        split: "train"
         method: "centernet"
+        image_transformation: "affine"
     - name: kc3d
       class: KC3D
       args:
         path_to_dataset: /home/ygk/disk/datas/data/kc3d
+        split: "train"
+        method: "centernet"
+  val_datasets:
+    - name: coco_val
+      class: InpatinedCocoDataset
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/train
+        split: "val"
+        method: "centernet"
+        image_transformation: "affine"
+    - name: kc3d
+      class: KC3D
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/kc3d
+        split: "val"
+        method: "centernet"
+  test_datasets:
+#    - name: kubric
+#      class: KubricChange
+#      args:
+#        path_to_dataset: /home/ygk/disk/datas/data/kubric-change
+#        split: "test"
+#        method: "centernet"
+    - name: rc3d
+      class: RC3D
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/rc3d
         split: "test"
         method: "centernet"
+#    - name: kc3d
+#      class: KC3D
+#      args:
+#        path_to_dataset: /home/ygk/disk/datas/data/kc3d
+#        split: "test"
+#        method: "centernet"
