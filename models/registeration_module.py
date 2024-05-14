@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from models.monodepth import Mono
 from pytorch3d.renderer import AlphaCompositor, PerspectiveCameras, PointsRasterizationSettings, PointsRasterizer, \
     PointsRenderer
 from pytorch3d.structures import Pointclouds
@@ -16,7 +15,6 @@ class FeatureRegisterationModule(nn.Module):
     def __init__(self):
         super().__init__()
         self.feature_warper = DifferentiableFeatureWarper()
-        # self.depth_predictor = Mono()
 
     def register_3d_features(
             self,
@@ -117,8 +115,8 @@ class FeatureRegisterationModule(nn.Module):
 
     # 实现原图的变换
     def test(self, batch, im1, im2):
-        reg_3d = [s == "3d" for s in batch["registration_strategy"]]
-        batch = slice_batch_given_bool_array(batch, reg_3d)
+        # reg_3d = [s == "3d" for s in batch["registration_strategy"]]
+        # batch = slice_batch_given_bool_array(batch, reg_3d)
         self.register_features(batch, im1, im2, "both")
         pass
 

@@ -44,82 +44,82 @@ datasets:
         split: "val"
         method: "centernet"
   test_datasets:
+    - name: coco_test_small
+      class: InpatinedCocoDataset
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/small
+        split: "test"
+        method: "centernet"
+        image_transformation: "affine"
     - name: kubric
       class: KubricChange
       args:
         path_to_dataset: /home/ygk/disk/datas/data/kubric-change/kubric-change
         split: "test"
         method: "centernet"
-#    - name: coco_test_small
-#      class: InpatinedCocoDataset
-#      args:
-#        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/small
-#        split: "test"
-#        method: "centernet"
-#        image_transformation: "affine"
-#    - name: coco_test_medium
-#      class: InpatinedCocoDataset
-#      args:
-#        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/medium
-#        split: "test"
-#        method: "centernet"
-#        image_transformation: "affine"
-#    - name: coco_test_large
-#      class: InpatinedCocoDataset
-#      args:
-#        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/large
-#        split: "test"
-#        method: "centernet"
-#        image_transformation: "affine"
-#    - name: synthtext
-#      class: SynthTextDataset
-#      args:
-#        path_to_dataset: /home/ygk/disk/datas/data/synthtext-change
-#        split: "test"
-#        method: "centernet"
-#    - name: std
-#      class: StdDataset
-#      args:
-#        path_to_dataset: /home/ygk/disk/datas/data/std/resized_images
-#        split: "test"
-#        method: "centernet"
-#        image_transformation: "identity"
-#    - name: kc3d
-#      class: KC3D
-#      args:
-#        path_to_dataset: /home/ygk/disk/datas/data/kc3d
-#        split: "test"
-#        method: "centernet"
-#    - name: rc3d
-#      class: RC3D
-#      args:
-#        path_to_dataset: /home/ygk/disk/datas/data/rc3d
-#        split: "test"
-#        method: "centernet"
-#    - name: coco_test_all
-#      class: ConcatDataset
-#      datasets:
-#        - name: coco_test_small
-#          class: InpatinedCocoDataset
-#          args:
-#            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/small
-#            split: "test"
-#            method: "centernet"
-#            image_transformation: "affine"
-#        - name: coco_test_medium
-#          class: InpatinedCocoDataset
-#          args:
-#            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/medium
-#            split: "test"
-#            method: "centernet"
-#            image_transformation: "affine"
-#        - name: coco_test_large
-#          class: InpatinedCocoDataset
-#          args:
-#            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/large
-#            split: "test"
-#            method: "centernet"
-#            image_transformation: "affine"
+    - name: coco_test_medium
+      class: InpatinedCocoDataset
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/medium
+        split: "test"
+        method: "centernet"
+        image_transformation: "affine"
+    - name: coco_test_large
+      class: InpatinedCocoDataset
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/large
+        split: "test"
+        method: "centernet"
+        image_transformation: "affine"
+    - name: synthtext
+      class: SynthTextDataset
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/synthtext-change
+        split: "test"
+        method: "centernet"
+    - name: std
+      class: StdDataset
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/std/resized_images
+        split: "test"
+        method: "centernet"
+        image_transformation: "identity"
+    - name: kc3d
+      class: KC3D
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/kc3d
+        split: "test"
+        method: "centernet"
+    - name: rc3d
+      class: RC3D
+      args:
+        path_to_dataset: /home/ygk/disk/datas/data/rc3d
+        split: "test"
+        method: "centernet"
+    - name: coco_test_all
+      class: ConcatDataset
+      datasets:
+        - name: coco_test_small
+          class: InpatinedCocoDataset
+          args:
+            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/small
+            split: "test"
+            method: "centernet"
+            image_transformation: "affine"
+        - name: coco_test_medium
+          class: InpatinedCocoDataset
+          args:
+            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/medium
+            split: "test"
+            method: "centernet"
+            image_transformation: "affine"
+        - name: coco_test_large
+          class: InpatinedCocoDataset
+          args:
+            path_to_dataset: /home/ygk/disk/datas/data/coco-inpainted/test/large
+            split: "test"
+            method: "centernet"
+            image_transformation: "affine"
 
 #vit_feature_layers: [2, 11]
 #encoder:

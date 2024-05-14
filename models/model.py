@@ -183,7 +183,7 @@ class Model(pl.LightningModule):
                         bboxes_per_image = bboxes_per_image[0][bboxes_per_image[1] == 0]
                         bbox_list = BoxList(
                             bboxes_per_image[:, :4],
-                            image_size=(256, 256),
+                            image_size=(224, 224),
                             mode="xyxy",
                         )
                         bbox_list.add_field("scores", bboxes_per_image[:, 4])
@@ -194,7 +194,7 @@ class Model(pl.LightningModule):
                     for bboxes_per_image in bboxes_per_side:
                         bbox_list = BoxList(
                             bboxes_per_image,
-                            image_size=(256, 256),
+                            image_size=(224, 224),
                             mode="xyxy",
                         )
                         bbox_list.add_field("labels", torch.ones(bboxes_per_image.shape[0]))
@@ -218,8 +218,8 @@ class Model(pl.LightningModule):
 
         # 写一个方法用于验证对齐的方式
 
-    def test(self, batch,im1,im2):
-        self.registeration_module.test(batch,im1,im2)
+    def test(self, batch, im1, im2):
+        self.registeration_module.test(batch, im1, im2)
         pass
 
     def forward(self, batch):
@@ -232,7 +232,8 @@ class Model(pl.LightningModule):
         # 将图片1与对齐后的图片2 进行拼接
         imag_one = torch.concat((left_images, r2l), 1)
         imag_two = torch.concat((right_images, l2r), 1)
-        self.test(batch,imag_one,imag_two)
+        # 测试3d是否能对齐的
+        # self.test(batch, imag_one, imag_two)
         image1_dino_features = self.feature_backbone(imag_one)
         image2_dino_features = self.feature_backbone(imag_two)
         image1_last_layer = self.bicubic_resize(image1_dino_features[-1])
@@ -277,24 +278,6 @@ class Model(pl.LightningModule):
                                                                                                    image2_outputs,
                                                                                                    batch)
         return batch_image1_predicted_bboxes, batch_image2_predicted_bboxes
-
-    def compute_loss(self, batch, image1_outputs, image2_outputs):
-        image1_losses = self.centernet_head.loss(
-            *image1_outputs,
-            batch["target_bbox_1"],
-            batch["target_bbox_labels1"],
-            img_metas=batch["query_metadata"],
-        )
-        image2_losses = self.centernet_head.loss(
-            *image2_outputs,
-            batch["target_bbox_2"],
-            batch["target_bbox_labels2"],
-            img_metas=batch["query_metadata"],
-        )
-        overall_loss = 0
-        for key in image1_losses:
-            overall_loss += image1_losses[key] + image2_losses[key]
-        return overall_loss
 
 
 class FeatureBackbone(nn.Module):

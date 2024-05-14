@@ -346,10 +346,10 @@ def fill_in_the_missing_information(batch, correspondence_extractor, depth_predi
         # if batch["registration_strategy"][i] in ["3d", None]:
         assert (batch["depth1"][i] is None) == (batch["depth2"][i] is None)
         if batch["depth1"][i] is None and batch["depth2"][i] is None:
-            batch["depth1"][i] = depth_predictor.eval(batch["left_image"][i].unsqueeze(0)).squeeze()
-            batch["depth2"][i] = depth_predictor.eval(batch["right_image"][i].unsqueeze(0)).squeeze()
-            # batch["depth1"][i] = depth_predictor.infer(batch["left_image"][i].unsqueeze(0)).squeeze()
-            # batch["depth2"][i] = depth_predictor.infer(batch["right_image"][i].unsqueeze(0)).squeeze()
+            # batch["depth1"][i] = depth_predictor.eval(batch["left_image"][i].unsqueeze(0)).squeeze()
+            # batch["depth2"][i] = depth_predictor.eval(batch["right_image"][i].unsqueeze(0)).squeeze()
+            batch["depth1"][i] = depth_predictor.infer(batch["left_image"][i].unsqueeze(0)).squeeze()
+            batch["depth2"][i] = depth_predictor.infer(batch["right_image"][i].unsqueeze(0)).squeeze()
 
     # 对depth进行
     # batch['depth1'] = rearrange(batch['depth1'], "... -> ...")

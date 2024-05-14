@@ -16,7 +16,6 @@ from models.unet import Unet
 from utilssss.utils import fill_in_the_missing_information
 from utilssss.voc_eval import BoxList, eval_detection_voc
 from models.middle import BackLayers, FrontLayers
-from models.test__ import alignImage
 import utilssss.geometry as geometry
 
 plt.ioff()
@@ -335,6 +334,7 @@ class CenterNetWithCoAttention(pl.LightningModule):
 
 
 def resize_other(batch, reg_other):
+    nearest_resize = K.augmentation.Resize((224, 224), resample=0, align_corners=None, keepdim=True)
     for i in range(len(batch['left_image'])):
         # 说明是2d相关的resize方式
         if reg_other[i]:
@@ -346,7 +346,7 @@ def resize_other(batch, reg_other):
                 output_shape_as_hw=(224, 224),
                 annotations=batch["image1_target_annotations"][i],
             )
-            batch["image1_target_annotations"][i] = target_region_and_annotations
+            image1_target_bboxes = torch.Tensor([x["bbox"] for x in target_region_and_annotations])
             (
                 batch["right_image"][i],
                 target_region_and_annotations,
@@ -355,9 +355,15 @@ def resize_other(batch, reg_other):
                 output_shape_as_hw=(224, 224),
                 annotations=batch["image2_target_annotations"][i],
             )
-            batch["image2_target_annotations"][i] = target_region_and_annotations
-            image1_target_bboxes = torch.Tensor([x["bbox"] for x in batch["image1_target_annotations"][i]])
-            image2_target_bboxes = torch.Tensor([x["bbox"] for x in batch["image2_target_annotations"][i]])
+            image2_target_bboxes = torch.Tensor([x["bbox"] for x in target_region_and_annotations])
+            # resize other's depth
+            if batch["depth1"][i] is not None:
+                batch["depth1"][i] = nearest_resize(batch["depth1"][i])
+            if batch["depth2"][i] is not None:
+                batch["depth2"][i] = nearest_resize(batch["depth2"][i])
+
+            # image1_target_bboxes = torch.Tensor([x["bbox"] for x in batch["image1_target_annotations"][i]])
+            # image2_target_bboxes = torch.Tensor([x["bbox"] for x in batch["image2_target_annotations"][i]])
             batch["left_image_target_bboxes"][i] = image1_target_bboxes
             batch["right_image_target_bboxes"][i] = image2_target_bboxes
             batch["target_bbox_labels"][i] = torch.zeros(len(image1_target_bboxes)).long()
@@ -374,13 +380,15 @@ def resize_3d(batch, reg_3d):
             original_hw1 = batch["left_image"][i].shape[-2:]
             original_hw2 = batch["right_image"][i].shape[-2:]
             # 我先不进行图像的正则化 （因为，对3d进行正则化，还需要对2d进行正则化）
-            batch["image1_target_annotations"][i] = resize_bbox(batch["image1_target_annotations"][i], original_hw1,
-                                                                (224, 224))
-            batch["image2_target_annotations"][i] = resize_bbox(batch["image2_target_annotations"][i], original_hw2,
-                                                                (224, 224))
 
-            batch["left_image"] = bicubic_resize(batch["left_image"][i])
-            batch["right_image"] = bicubic_resize(batch["right_image"][i])
+            batch["left_image_target_bboxes"][i] = resize_bbox(batch["image1_target_annotations"][i], original_hw1,
+                                                               (224, 224))
+            batch["right_image_target_bboxes"][i] = resize_bbox(batch["image2_target_annotations"][i], original_hw2,
+                                                                (224, 224))
+            batch["target_bbox_labels"][i] = torch.zeros(len(batch["left_image_target_bboxes"][i])).long()
+
+            batch["left_image"][i] = bicubic_resize(batch["left_image"][i])
+            batch["right_image"][i] = bicubic_resize(batch["right_image"][i])
 
             if batch["depth1"][i] is not None:
                 original_depth_hw1 = batch["depth1"][i].shape[-2:]
@@ -405,6 +413,20 @@ def resize_3d(batch, reg_3d):
     return batch
 
 
+def handleBatch(batch, filder):
+    batch_ = {}
+    for key in batch.keys():
+        if "transform" in key or "annotations" in key or "index" in key or "path" in key:
+            continue
+        if isinstance(batch[key], list):
+            batch_[key] = [batch[key][i] for i in range(len(batch[key])) if filder[i]]
+            if "bbox" in key or "point" in key:
+                continue
+            if key in ["left_image", "right_image", "depth1", "depth2", "left2right", "right2left"]:
+                batch_[key] = rearrange(batch_[key], "... -> ...")
+    return batch_
+
+
 def prepare_batch_for_model_all(batch):
     # 前提已经统一了标准
     # batch标准的
@@ -412,6 +434,12 @@ def prepare_batch_for_model_all(batch):
     reg_other = [s != "3d" for s in batch["registration_strategy"]]
     batch = resize_other(batch, reg_other)
     batch = resize_3d(batch, reg_3d)
+    # 过滤到bbox为0的异常图片
+    # filder = [False if i.shape[0] == 0 else True for i in batch['left_image_target_bboxes']]
+    filder = [False if len(a) != len(b) or len(a) == 0 else True for a, b in
+              zip(batch['left_image_target_bboxes'], batch['right_image_target_bboxes'])]
+    # 开始对image  和 depth 进行batch 合并
+    batch = handleBatch(batch, filder)
     return batch
 
 
@@ -439,6 +467,8 @@ def marshal_getitem_data(data, split):
             "rotation1",
             "rotation2",
             "registration_strategy",
+            # "index",
+            # "path"
         ]
         for key in all_keys:
             value = data.get(key, None)
@@ -468,10 +498,12 @@ def marshal_getitem_data(data, split):
         "position2": data["position2"],
         "rotation1": data["rotation1"],
         "rotation2": data["rotation2"],
+        # "index": data["index"],
+        # "path": data["path"],
         "query_metadata": {
-            "pad_shape": data["image1"].shape[-2:],
+            "pad_shape": (224, 224),
             "border": np.array([0, 0, 0, 0]),
-            "batch_input_shape": data["image1"].shape[-2:],
+            "batch_input_shape": (224, 224),
         },
     }
     # -------------------END---------------------------
@@ -596,8 +628,8 @@ def resize_bbox(bboxes, original_size, new_size):
         resized_bboxes: tensor of shape (N, 4) representing resized bounding boxes.
     """
     # 计算缩放比例
-    w_ratio = new_size[0] / original_size[0]
-    h_ratio = new_size[1] / original_size[1]
+    h_ratio = new_size[0] / original_size[0]
+    w_ratio = new_size[1] / original_size[1]
 
     # 重塑bbox
     resized_bboxes = torch.zeros_like(bboxes)
@@ -682,37 +714,7 @@ def dataloader_collate_fn(batch, test, depth_predictor):
     batch = fill_in_the_missing_information(batch, test, depth_predictor)
     # 最后再resize
     batch = prepare_batch_for_model_all(batch)
-
-    # 这个好像单纯是保证放入模型的数据
-    keys = batch[0].keys()
-    collated_dictionary = {}
-    for key in keys:
-        collated_dictionary[key] = []
-        for batch_item in batch:
-            collated_dictionary[key].append(batch_item[key])
-        if key in [
-            "left_image_target_bboxes",
-            "right_image_target_bboxes",
-            "query_metadata",
-            "target_bbox_labels",
-            "depth1",
-            "depth2",
-            "intrinsics1",
-            "intrinsics2",
-            "position1",
-            "position2",
-            "rotation1",
-            "rotation2",
-            "registration_strategy",
-            # "index",
-        ]:
-            continue
-        collated_dictionary[key] = ImageList.from_tensors(
-            collated_dictionary[key], size_divisibility=32
-        ).tensor
-
-    # collated_dictionary = test.alignImage(collated_dictionary)
-    return collated_dictionary
+    return batch
 
 
 ################################################

@@ -20,12 +20,15 @@ class KC3D(Dataset):
     def __init__(self, depth_predictor, path_to_dataset, split, method, use_ground_truth_registration=True):
         self.path_to_dataset = path_to_dataset
         self.data = self.get_data_info(path_to_dataset)
-        self.indicies = self.data[split]
         self.split = split
-
-        len_train = int(len(self.data["train"]) * 0.2)
-        len_val = len(self.data["val"])
+        len_train = int(len(self.data["train"]) * 0.08)  # 6548
+        len_val = int(len(self.data["val"]) * 0.1)  # 454
         len_test = len(self.data["test"])
+
+        self.data["train"] = self.data["train"][:len_train]
+        self.data["val"] = self.data["val"][:len_val]
+
+        self.indicies = self.data[split]
         self.use_ground_truth_registration = use_ground_truth_registration
         self.annotation_indices = np.arange(len_train + len_val, len_train + len_val + len_test)
         self.data = np.array(self.indicies)
@@ -102,7 +105,9 @@ class KC3D(Dataset):
             "registration_strategy": "3d",
             "image1_target_annotations": target_bbox_1,
             "image2_target_annotations": target_bbox_2,
-            # "index": "_".join(scene["image1"].split("_")[:-1])
+            # 目的:将图像预处理的值存放起来
+            # "index": "_".join(scene["image1"].split("_")[:-1]),
+            # "path": self.path_to_dataset
 
         }
 

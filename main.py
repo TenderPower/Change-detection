@@ -14,7 +14,8 @@ from data.datamodule import DataModule
 from models.centernet_with_coam import CenterNetWithCoAttention
 from models.model import Model
 from utilssss.general import get_easy_dict_from_yaml_file
-
+from zoedepth.models.builder import build_model
+from zoedepth.utils.config import get_config
 from torchsummary import summary
 
 warnings.filterwarnings("ignore")
@@ -61,6 +62,11 @@ def get_logging_callback_manager(args):
 
 
 if __name__ == "__main__":
+    from pyinstrument import Profiler
+
+    profiler = Profiler()
+    profiler.start()
+
     parser = ArgumentParser()
     parser.add_argument("--method", type=str)
     parser.add_argument("--no_logging", action="store_true", default=False)
@@ -97,13 +103,16 @@ if __name__ == "__main__":
         configs.limit_train_batches = 2
         configs.limit_val_batches = 1
         configs.limit_test_batches = 1
-        configs.max_epochs = 1
+        configs.max_epochs = 2
 
     # print_args(configs)
 
     pl.seed_everything(1, workers=True)
 
-    datamodule = DataModule(configs)
+    conf = get_config("zoedepth_nk", "infer")
+    depth_predictor = build_model(conf)
+    datamodule = DataModule(configs, depth_predictor=depth_predictor)
+    datamodule.setup()
     if configs.method == "centernet":
         model = CenterNetWithCoAttention(configs)
     else:
@@ -114,7 +123,8 @@ if __name__ == "__main__":
 
     # print(model.summarize(mode='full'))
     logger = None
-    callbacks = [get_logging_callback_manager(configs)]
+    # callbacks = [get_logging_callback_manager(configs)]
+    callbacks = []
     if not configs.no_logging:
         logger = WandbLogger(
             project="cyws_256_2gpu",
@@ -152,3 +162,6 @@ if __name__ == "__main__":
             test_checkpoint_path if test_checkpoint_path != "" else None,
             callbacks,
         )
+    profiler.stop()
+
+    print(profiler.output_text(unicode=True, color=True))

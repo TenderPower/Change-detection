@@ -13,7 +13,7 @@ num_dataloader_workers: 8
 lr: 0.0001
 imagenet_normalisation: True
 weight_decay: 0.0005
-test_batch_size: 4
+test_batch_size: 2
 datasets:
   train_datasets:
     - name: coco_train

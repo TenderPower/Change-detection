@@ -10,16 +10,13 @@ from data.synthtext_dataset import SynthTextDataset  # noqa
 from data.kc3d import KC3D
 from data.rc3d import RC3D
 from models.test___ import Test
-from models.monodepth import Mono
 from data.customdatasets import Datasets
-import torch
-
-# max_retries = 3
-# retry_count = 0
+from zoedepth.models.builder import build_model
+from zoedepth.utils.config import get_config
 
 
 class DataModule(pl.LightningDataModule):
-    def __init__(self, args):
+    def __init__(self, args, depth_predictor):
         super().__init__()
         self.batch_size = args.batch_size
         self.test_batch_size = args.test_batch_size
@@ -29,7 +26,11 @@ class DataModule(pl.LightningDataModule):
         self.dataloader_collate_fn = self.import_method_specific_functions(self.method)
         self.testAlignImage = Test()
         # self.depth_predictor = torch.hub.load("isl-org/ZoeDepth", "ZoeD_NK", pretrained=True).eval()
-        self.depth_predictor = Mono(no_cuda=True)
+        # self.depth_predictor = Mono(no_cuda=True)
+        # conf = get_config("zoedepth_nk", "infer")
+        # self.depth_predictor = build_model(conf)
+        self.depth_predictor = depth_predictor
+
     @staticmethod
     def add_data_specific_args(parent_parser):
         parser = parent_parser.add_argument_group("InpaintedCOCODataModule")
@@ -101,6 +102,7 @@ class DataModule(pl.LightningDataModule):
 
         return DataLoader(self.traindatasets,
                           batch_size=self.batch_size,
+                          shuffle=True,
                           num_workers=self.num_dataloader_workers,
                           collate_fn=collate_fn_wrapper)
 
@@ -110,6 +112,7 @@ class DataModule(pl.LightningDataModule):
 
         return DataLoader(self.valdatasets,
                           batch_size=self.batch_size,
+                          shuffle=True,
                           num_workers=self.num_dataloader_workers,
                           collate_fn=collate_fn_wrapper)
 

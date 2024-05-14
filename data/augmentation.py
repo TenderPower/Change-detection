@@ -26,23 +26,29 @@ class AugmentationPipeline(nn.Module):
         self.path_to_dataset = path_to_dataset
         self.image_transformation = image_transformation
 
-    def kornia_augmentation_function(self, input, type_of_image, image_index):
+    def kornia_augmentation_function(self, input, depth, type_of_image, image_index):
         if len(input.shape) == 3:
             input = torch.unsqueeze(input, dim=0)
+
         if self.mode in ["train", "val"]:
-            return self.apply_train_augmentations(input)
+            return self.apply_train_augmentations(input, depth)
         if self.mode == "test":
-            return self.apply_test_augmentations(input, type_of_image, image_index)
+            return self.apply_test_augmentations(input, depth, type_of_image, image_index)
         raise NotImplementedError(f"Unsupported mode {self.mode}")
 
-    def apply_train_augmentations(self, input):
+    def apply_train_augmentations(self, input, depth):
         input = self.jit(input)
         if self.image_transformation == "identity":
             return input, torch.eye(3)
-        input = self.aff(input)
-        return input, self.aff.transform_matrix
 
-    def apply_test_augmentations(self, input, type_of_image, image_index):
+        input = torch.cat([input, depth.unsqueeze(0).unsqueeze(0)], 1)
+        input_ = self.aff(input)
+        input = input_[:, :3, :, :]
+        depth = input_[:, 3:, :, :]
+        return input, self.aff.transform_matrix, depth
+
+    def apply_test_augmentations(self, input, depth, type_of_image, image_index):
+        # 这里也要改 但先暂定
         precomputed_augmentation_path = os.path.join(
             self.path_to_dataset, f"test_augmentations/{type_of_image}/{image_index}.params"
         )
@@ -57,10 +63,14 @@ class AugmentationPipeline(nn.Module):
         input = self.jit(input, params=augmentation_params["jit"])
         if self.image_transformation == "identity":
             return input, torch.eye(3)
-        input = self.aff(input, params=augmentation_params["aff"])
-        return input, self.aff.transform_matrix
 
-    def forward(self, image1_image_as_tensor, image2_image_as_tensor, annotations, image_index):
+        input = torch.cat([input, depth.unsqueeze(0).unsqueeze(0)], 1)
+        input_ = self.aff(input, params=augmentation_params["aff"])
+        input = input_[:, :3, :, :]
+        depth = input_[:, 3:, :, :]
+        return input, self.aff.transform_matrix, depth
+
+    def forward(self, image1_image_as_tensor, image2_image_as_tensor, depth1, depth2, annotations, image_index):
         if self.image_transformation == "registered":
             return self.forward_registered(
                 image1_image_as_tensor, image2_image_as_tensor, annotations, image_index
@@ -69,16 +79,19 @@ class AugmentationPipeline(nn.Module):
             return self.forward_identity(
                 image1_image_as_tensor, image2_image_as_tensor, annotations, image_index
             )
+        # 只改affine，其他的部分不动
         return self.forward_transformed(
-            image1_image_as_tensor, image2_image_as_tensor, annotations, image_index
+            image1_image_as_tensor, image2_image_as_tensor, depth1, depth2, annotations, image_index
         )
 
     def forward_transformed(
-        self,
-        image1_image_as_tensor,
-        image2_image_as_tensor,
-        annotations,
-        image_index,
+            self,
+            image1_image_as_tensor,
+            image2_image_as_tensor,
+            depth1,
+            depth2,
+            annotations,
+            image_index,
     ):
         """
         The is a hairy piece code. It performs the following steps:
@@ -107,11 +120,13 @@ class AugmentationPipeline(nn.Module):
         (
             image1_image_transformed,
             image1_image_transformation,
-        ) = self.kornia_augmentation_function(image1_image_as_tensor, "original", image_index)
+            depth1,
+        ) = self.kornia_augmentation_function(image1_image_as_tensor, depth1, "original", image_index)
         (
             image2_image_transformed,
             image2_image_transformation,
-        ) = self.kornia_augmentation_function(image2_image_as_tensor, "inpainted", image_index)
+            depth2,
+        ) = self.kornia_augmentation_function(image2_image_as_tensor, depth2, "inpainted", image_index)
 
         ############
         ## Step 2 ##
@@ -156,7 +171,7 @@ class AugmentationPipeline(nn.Module):
         )
         intersection_of_segmentations = []
         for image1, image2 in zip(
-            image1_segmentations_transformed_inverted, image2_segmentations_transformed_inverted
+                image1_segmentations_transformed_inverted, image2_segmentations_transformed_inverted
         ):
             intersection_segmentation = geometry.make_valid_polygon(
                 image1.intersection(image2)
@@ -187,16 +202,18 @@ class AugmentationPipeline(nn.Module):
         return (
             image1_image_transformed,
             image2_image_transformed,
+            depth1,
+            depth2,
             transformed_image1_annotations,
             transformed_image2_annotations,
         )
 
     def forward_identity(
-        self,
-        image1_image_as_tensor,
-        image2_image_as_tensor,
-        annotations,
-        image_index,
+            self,
+            image1_image_as_tensor,
+            image2_image_as_tensor,
+            annotations,
+            image_index,
     ):
         """
         Unlike forward_transformed(), here we just return the original images with
@@ -225,7 +242,7 @@ class AugmentationPipeline(nn.Module):
         )
 
     def forward_registered(
-        self, image1_image_as_tensor, image2_image_as_tensor, annotations, image_index
+            self, image1_image_as_tensor, image2_image_as_tensor, annotations, image_index
     ):
         """
         Like forward_transformed(), we first transform both the images but then
@@ -307,7 +324,7 @@ class AugmentationPipeline(nn.Module):
         )
         intersection_of_segmentations = []
         for image1, image2 in zip(
-            image1_segmentations_transformed_inverted, image2_segmentations_transformed_inverted
+                image1_segmentations_transformed_inverted, image2_segmentations_transformed_inverted
         ):
             intersection_segmentation = geometry.make_valid_polygon(
                 image1.intersection(image2)

@@ -76,6 +76,8 @@ class SubDataset(Dataset):
             "registration_strategy": "3d",
             "image1_target_annotations": torch.tensor([target_bbox_1]),
             "image2_target_annotations": torch.tensor([target_bbox_2]),
+            # "index": item_index,
+            # "path": self.path_to_dataset,
         }
 
         if self.use_gt_depth:
@@ -88,15 +90,15 @@ class SubDataset(Dataset):
 
         # 先默认导入当前的图片
         # demo_data/depth_ship_0.png
-        image1_as_tensor = self.read_image_as_tensor(os.path.join('demo_data', 'ship_0.jpg'))
-        image2_as_tensor = self.read_image_as_tensor(os.path.join('demo_data', 'ship_2.jpg'))
-        data = {
-            "image1": image1_as_tensor,
-            "image2": image2_as_tensor,
-            "registration_strategy": "3d",
-            "image1_target_annotations": torch.tensor([target_bbox_1]),
-            "image2_target_annotations": torch.tensor([target_bbox_2]),
-        }
+        # image1_as_tensor = self.read_image_as_tensor(os.path.join('demo_data', 'ship_0.jpg'))
+        # image2_as_tensor = self.read_image_as_tensor(os.path.join('demo_data', 'ship_2.jpg'))
+        # data = {
+        #     "image1": image1_as_tensor,
+        #     "image2": image2_as_tensor,
+        #     "registration_strategy": "3d",
+        #     "image1_target_annotations": torch.tensor([target_bbox_1]),
+        #     "image2_target_annotations": torch.tensor([target_bbox_2]),
+        # }
         return self.marshal_getitem_data(data, self.split)
 
 

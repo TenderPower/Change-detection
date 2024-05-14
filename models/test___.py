@@ -4,6 +4,11 @@ import os
 import numpy as np
 import kornia as K
 import torch.nn as nn
+from einops import rearrange
+from pytorch3d.renderer import PointsRasterizationSettings, PerspectiveCameras, PointsRasterizer, PointsRenderer, \
+    AlphaCompositor
+from pytorch3d.structures import Pointclouds
+
 import utilssss.general as general
 import torch.nn.functional as F
 from SuperGluePretrainedNetwork.models.matching import Matching
@@ -11,6 +16,7 @@ from torchvision.transforms.functional import pil_to_tensor
 from PIL import Image
 from models.geometry import transform_points, convert_image_coordinates_to_world, sample_depth_for_given_points
 import cv2
+import models
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -68,6 +74,8 @@ def get_Homo_Images(pred, image1, image2):
         # 我直接先原图变化
         # 之后再统一resize 可以吗?
         _, h, w = image1.shape
+        # w = 224
+        # h = 224
         aligned_img1 = cv2.warpPerspective(image1_cv, H, (w, h))
         aligned_img2 = cv2.warpPerspective(image2_cv, inverH, (w, h))
         # 将cv转为tensor
@@ -79,7 +87,7 @@ def get_Homo_Images(pred, image1, image2):
         return aligned_img1, aligned_img2
 
 
-def get_points(pred_3d, inp1, inp2):
+def get_points(pred_3d, inp1, inp2, depth1, depth2, rs):
     kpts1, kpts2 = pred_3d['keypoints0'][0], pred_3d['keypoints1'][0]
     scale_1 = torch.tensor(inp1.shape[-2:]).flip(dims=(0,))
     scale_2 = torch.tensor(inp2.shape[-2:]).flip(dims=(0,))
@@ -104,10 +112,7 @@ def get_points(pred_3d, inp1, inp2):
             l = kpts1.shape[0] if kpts1.shape[0] < kpts2.shape[0] else kpts2.shape[0]
             return kpts1[:l], kpts2[:l]
 
-        kpts1, kpts2 = filter_out_bad_correspondences_using_ransac(kpts1,
-                                                                   kpts2, batch["depth1"][i],
-                                                                   batch["depth2"][i],
-                                                                   batch["registration_strategy"][i], )
+        kpts1, kpts2 = filter_out_bad_correspondences_using_ransac(kpts1, kpts2, depth1, depth2, rs, )
         return kpts1, kpts2
 
 
@@ -127,129 +132,84 @@ class Test:
         }
         self.matching = Matching(config).eval()
         self._resize = K.augmentation.Resize(640, side="long")
+        self._resize_ = K.augmentation.Resize((224, 224))
 
     def alignImage(self, batch):
-
         batch_points1 = []
         batch_points2 = []
         left2right = []
         right2left = []
         for i in range(len(batch['left_image'])):
-            #     不管是2d或3d都需要进行查找keypoints 和 matching
+            # 不管是2d或3d都需要进行查找keypoints 和 matching
             image1 = batch['left_image'][i]
             image2 = batch['right_image'][i]
 
             inp1 = K.color.rgb_to_grayscale(image1).unsqueeze(0)
             inp2 = K.color.rgb_to_grayscale(image2).unsqueeze(0)
 
+            # # 先判断本地是否存放了对应的数据
+            # transimagepath = os.path.join(batch["path"][i], "transformImages")
+            # pointspath = os.path.join(batch["path"][i], "points")
+            # if not os.path.exists(transimagepath):
+            #     os.makedirs(transimagepath)
+            # if not os.path.exists(pointspath):
+            #     os.makedirs(pointspath)
+
+            # index = batch["index"][i]
+            # l2r_file = os.path.join(transimagepath, f"{index}_l2r.pt")
+            # r2l_file = os.path.join(transimagepath, f"{index}_r2l.pt")
+            # if os.path.isfile(l2r_file) and os.path.isfile(r2l_file):
+            #     with open(l2r_file, "rb") as f:
+            #         l2r = torch.load(f)
+            #     with open(r2l_file, "rb") as f:
+            #         r2l = torch.load(f)
+            # else:
+            #     with open(l2r_file, "wb") as f:
+            #         torch.save(l2r, f)
+            #     with open(r2l_file, "wb") as f:
+            #         torch.save(r2l, f)
+            # ------------------------------END----------------------------------
+
+            # 判断单应性对齐图片
+            with torch.no_grad():
+                # -------------------这个地方耗时------------
+                pred = self.matching({'image0': inp1, 'image1': inp2})
+            # 单应性变化
+            l2r, r2l = get_Homo_Images(pred, image1, image2)
+
+            # # ---------------画图-----------------------
+            # image1 = cv2.cvtColor(numpy.asarray(general.tensor_to_PIL(inp1_2d)), cv2.COLOR_RGB2BGR)
+            # image2 = cv2.cvtColor(numpy.asarray(general.tensor_to_PIL(inp2_2d)), cv2.COLOR_RGB2BGR)
+            #
+            # img1_2 = cv2.cvtColor(np.asarray(general.tensor_to_PIL(l2r)), cv2.COLOR_RGB2BGR)
+            # img2_1 = cv2.cvtColor(np.asarray(general.tensor_to_PIL(r2l)), cv2.COLOR_RGB2BGR)
+            #
+            # imags = [image1, img2_1, image2, img1_2]
+            # ploting_image(imags, "test")
+            # print("Test")
+            # # -----------------END--------------------
+
+            bicubic_resize = K.augmentation.Resize((224, 224), resample=2, keepdim=True)
+            l2r = bicubic_resize(l2r)
+            r2l = bicubic_resize(r2l)
+
+            left2right.append(l2r)
+            right2left.append(r2l)
+
             # 问题点：(他对单映射变化还有影响)
             inp1_3d = self._resize(inp1)
             inp2_3d = self._resize(inp2)
 
             with torch.no_grad():
-                pred = self.matching({'image0': inp1, 'image1': inp2})
+                # -------------这个地方耗时------------------------
                 pred_3d = self.matching({'image0': inp1_3d, 'image1': inp2_3d})
 
-            # 单应性变化
-            l2r, r2l = get_Homo_Images(pred, image1, image2)
-            left2right.append(l2r)
-            right2left.append(r2l)
-
             # 获取图片3d相关信息
-            get_points(pred_3d, inp1_3d, inp2_3d)
+            kpts1, kpts2 = get_points(pred_3d, inp1_3d, inp2_3d, batch["depth1"][i], batch["depth2"][i],
+                                      batch["registration_strategy"][i])
 
-
-            kpts1, kpts2 = pred['keypoints0'][0], pred['keypoints1'][0]
-
-            if kpts1.shape[0] < 4 or kpts2.shape[0] < 4:
-                l = kpts1.shape[0] if kpts1.shape[0] < kpts2.shape[0] else kpts2.shape[0]
-
-                batch_points1.append(kpts1[:l])
-                batch_points2.append(kpts2[:l])
-                left2right.append(image1)
-                right2left.append(image2)
-
-            else:
-                matches, conf = pred['matches0'][0], pred['matching_scores0'][0]
-
-                valid = matches != -1
-                conf = conf[valid]
-                kpts1 = kpts1[valid]
-                kpts2 = kpts2[matches[valid]]
-
-                conf, sort_idx = conf.sort(descending=True)
-                kpts1 = kpts1[sort_idx]
-                kpts2 = kpts2[sort_idx]
-
-                # 干脆不管3d2d都先进行这样的处理（利用上述过滤的kpts 进行映射变化）
-                if kpts1.shape[0] < 4 or kpts2.shape[0] < 4:
-                    l = kpts1.shape[0] if kpts1.shape[0] < kpts2.shape[0] else kpts2.shape[0]
-                    batch_points1.append(kpts1[:l])
-                    batch_points2.append(kpts2[:l])
-                    left2right.append(image1)
-                    right2left.append(image2)
-                    continue
-
-                # 提取匹配的关键点
-                kpts1_ = kpts1.numpy()
-                kpts2_ = kpts2.numpy()
-
-                # 计算单应性矩阵
-                H, _ = cv2.findHomography(kpts1_, kpts2_, cv2.RANSAC, 3)
-                if H is None:
-                    left2right.append(image1)
-                    right2left.append(image2)
-                    continue
-                inverH = torch.pinverse(torch.Tensor(H)).numpy()
-                # 使用单应性矩阵对img1进行变换，使其与img2对齐
-                image1_cv = tensor2cv(image1)
-                image2_cv = tensor2cv(image2)
-
-                # 我直接先原图变化
-                # 之后再统一resize 可以吗?
-                _, h, w = image1.shape
-                aligned_img1 = cv2.warpPerspective(image1_cv, H, (w, h))
-                aligned_img2 = cv2.warpPerspective(image2_cv, inverH, (w, h))
-                # 将cv转为tensor
-                aligned_img1 = pil_to_tensor(
-                    Image.fromarray(cv2.cvtColor(aligned_img1, cv2.COLOR_BGR2RGB))).float() / 255.0
-                aligned_img2 = pil_to_tensor(
-                    Image.fromarray(cv2.cvtColor(aligned_img2, cv2.COLOR_BGR2RGB))).float() / 255.0
-
-                left2right.append(aligned_img1)
-                right2left.append(aligned_img2)
-                # # 使用自定义的函数
-                # aligned_img1 = warp_perspective(image1, torch.tensor(H))
-                # aligned_img2 = warp_perspective(image2, torch.tensor(inverH))
-
-                # 画图
-                image1 = cv2.cvtColor(numpy.asarray(general.tensor_to_PIL(image1)), cv2.COLOR_RGB2BGR)
-                image2 = cv2.cvtColor(numpy.asarray(general.tensor_to_PIL(image2)), cv2.COLOR_RGB2BGR)
-
-                img1_2 = cv2.cvtColor(np.asarray(general.tensor_to_PIL(aligned_img1)), cv2.COLOR_RGB2BGR)
-                img2_1 = cv2.cvtColor(np.asarray(general.tensor_to_PIL(aligned_img2)), cv2.COLOR_RGB2BGR)
-
-                imags = [image1, img2_1, image2, img1_2]
-                ploting_image(imags, "test")
-
-                # 这里对points进行处理
-
-                # 问题点：
-                scale_1 = torch.tensor(inp1.shape[-2:]).flip(dims=(0,))
-                scale_2 = torch.tensor(inp2.shape[-2:]).flip(dims=(0,))
-
-                kpts1 /= scale_1
-                kpts2 /= scale_2
-
-                kpts1, kpts2 = filter_out_bad_correspondences_using_ransac(kpts1,
-                                                                           kpts2, batch["depth1"][i],
-                                                                           batch["depth2"][i],
-                                                                           batch["registration_strategy"][i], )
-                batch_points1.append(kpts1)
-                batch_points2.append(kpts2)
-
-        left2right = torch.stack(left2right, dim=0)
-        right2left = torch.stack(right2left, dim=0)
+            batch_points1.append(kpts1)
+            batch_points2.append(kpts2)
 
         # 向batch里面加入 points 和 warp后的
         batch["points1"] = batch_points1  # List
@@ -264,7 +224,7 @@ def ploting_image(imagelist, index):
     img_horizontal = cv2.hconcat(images)
     # 指定保存的路径
     # /disk/ygk/pycharm_project/The-Change-You-Want-to-See-main/imgs
-    save_path = f'/disk/ygk/pycharm_project/The-Change-You-Want-to-See-main/imgs/kc3d_2/{index}.png'
+    save_path = f'/disk/ygk/pycharm_project/The_Change_You_Want_to_See_main/imgs/kc3d_2/{index}.png'
     print(save_path)
     # 如果目录不存在，创建目录
     if not os.path.exists(os.path.dirname(save_path)):
