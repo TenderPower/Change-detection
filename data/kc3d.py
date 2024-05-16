@@ -1,5 +1,7 @@
 import os
 import pickle
+import random
+
 from loguru import logger as L
 # import imageio.v2 as imageio
 import imageio
@@ -21,12 +23,12 @@ class KC3D(Dataset):
         self.path_to_dataset = path_to_dataset
         self.data = self.get_data_info(path_to_dataset)
         self.split = split
-        len_train = int(len(self.data["train"]) * 0.08)  # 6548
-        len_val = int(len(self.data["val"]) * 0.1)  # 454
+        len_train = int(len(self.data["train"]) * 0.5)
+        len_val = int(len(self.data["val"]) * 0.5)
         len_test = len(self.data["test"])
 
-        self.data["train"] = self.data["train"][:len_train]
-        self.data["val"] = self.data["val"][:len_val]
+        self.data["train"] = random.sample(self.data["train"], len_train)
+        self.data["val"] = random.sample(self.data["val"], len_val)
 
         self.indicies = self.data[split]
         self.use_ground_truth_registration = use_ground_truth_registration

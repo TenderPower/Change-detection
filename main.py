@@ -109,31 +109,23 @@ if __name__ == "__main__":
 
     pl.seed_everything(1, workers=True)
 
-    conf = get_config("zoedepth_nk", "infer")
-    depth_predictor = build_model(conf)
-    datamodule = DataModule(configs, depth_predictor=depth_predictor)
-    datamodule.setup()
+    datamodule = DataModule(configs)
     if configs.method == "centernet":
         model = CenterNetWithCoAttention(configs)
     else:
         model = Model(configs)
 
-    # 设置'spawn'启动方法
-    # torch.multiprocessing.set_start_method('spawn')
-
-    # print(model.summarize(mode='full'))
     logger = None
-    # callbacks = [get_logging_callback_manager(configs)]
-    callbacks = []
+    callbacks = [get_logging_callback_manager(configs)]
     if not configs.no_logging:
         logger = WandbLogger(
-            project="cyws_256_2gpu",
+            project="cyws-3d-2d",
             id=configs.wandb_id,
-            save_dir="/home/ygk/disk/pycharm_project/The-Change-You-Want-to-See-main/work",
+            save_dir="/disk/ygk/pycharm_project/The_Change_You_Want_to_See_main/work",
             name=configs.experiment_name,
         )
-        callbacks.append(ModelCheckpoint(save_top_k=5, monitor="val/overall_loss", mode="min",
-                                         filename='{epoch:02d}-val_overall_loss', save_last=True))
+        callbacks.append(ModelCheckpoint(save_top_k=3, monitor="val/overall_loss", mode="min",
+                                         filename='{epoch:02d}', save_last=True))
         # callbacks.append(EarlyStopping(monitor="val/overall_loss", mode='min', patience=10))
         # callbacks.append(ModelCheckpoint(save_top_k=4, monitor="cocoval_AP", mode="max",
         #                                  filename='{epoch:02d}-ap{cocoval_AP:.2f}', save_last=True))
@@ -151,6 +143,9 @@ if __name__ == "__main__":
     else:
         # test the given model checkpoint
         test_checkpoint_path = configs.test_from_checkpoint
+    profiler.stop()
+
+    print(profiler.output_text(unicode=True, color=True))
 
     configs.gpus = 1
     if trainer is None or trainer.global_rank == 0:
@@ -162,6 +157,3 @@ if __name__ == "__main__":
             test_checkpoint_path if test_checkpoint_path != "" else None,
             callbacks,
         )
-    profiler.stop()
-
-    print(profiler.output_text(unicode=True, color=True))

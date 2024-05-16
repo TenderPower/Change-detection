@@ -147,63 +147,27 @@ class Test:
             inp1 = K.color.rgb_to_grayscale(image1).unsqueeze(0)
             inp2 = K.color.rgb_to_grayscale(image2).unsqueeze(0)
 
-            # # 先判断本地是否存放了对应的数据
-            # transimagepath = os.path.join(batch["path"][i], "transformImages")
-            # pointspath = os.path.join(batch["path"][i], "points")
-            # if not os.path.exists(transimagepath):
-            #     os.makedirs(transimagepath)
-            # if not os.path.exists(pointspath):
-            #     os.makedirs(pointspath)
-
-            # index = batch["index"][i]
-            # l2r_file = os.path.join(transimagepath, f"{index}_l2r.pt")
-            # r2l_file = os.path.join(transimagepath, f"{index}_r2l.pt")
-            # if os.path.isfile(l2r_file) and os.path.isfile(r2l_file):
-            #     with open(l2r_file, "rb") as f:
-            #         l2r = torch.load(f)
-            #     with open(r2l_file, "rb") as f:
-            #         r2l = torch.load(f)
-            # else:
-            #     with open(l2r_file, "wb") as f:
-            #         torch.save(l2r, f)
-            #     with open(r2l_file, "wb") as f:
-            #         torch.save(r2l, f)
-            # ------------------------------END----------------------------------
-
-            # 判断单应性对齐图片
-            with torch.no_grad():
-                # -------------------这个地方耗时------------
-                pred = self.matching({'image0': inp1, 'image1': inp2})
-            # 单应性变化
-            l2r, r2l = get_Homo_Images(pred, image1, image2)
-
-            # # ---------------画图-----------------------
-            # image1 = cv2.cvtColor(numpy.asarray(general.tensor_to_PIL(inp1_2d)), cv2.COLOR_RGB2BGR)
-            # image2 = cv2.cvtColor(numpy.asarray(general.tensor_to_PIL(inp2_2d)), cv2.COLOR_RGB2BGR)
-            #
-            # img1_2 = cv2.cvtColor(np.asarray(general.tensor_to_PIL(l2r)), cv2.COLOR_RGB2BGR)
-            # img2_1 = cv2.cvtColor(np.asarray(general.tensor_to_PIL(r2l)), cv2.COLOR_RGB2BGR)
-            #
-            # imags = [image1, img2_1, image2, img1_2]
-            # ploting_image(imags, "test")
-            # print("Test")
-            # # -----------------END--------------------
-
-            bicubic_resize = K.augmentation.Resize((224, 224), resample=2, keepdim=True)
-            l2r = bicubic_resize(l2r)
-            r2l = bicubic_resize(r2l)
-
-            left2right.append(l2r)
-            right2left.append(r2l)
-
             # 问题点：(他对单映射变化还有影响)
             inp1_3d = self._resize(inp1)
             inp2_3d = self._resize(inp2)
+
+            # 将image进行resize 方便进行2d对齐
+            image1_ = self._resize(image1).squeeze()
+            image2_ = self._resize(image2).squeeze()
 
             with torch.no_grad():
                 # -------------这个地方耗时------------------------
                 pred_3d = self.matching({'image0': inp1_3d, 'image1': inp2_3d})
 
+            # 单应性变化
+            l2r, r2l = get_Homo_Images(pred_3d, image1_, image2_)
+
+            # 将对齐后的图片 进行resize
+            l2r = self._resize_(l2r).squeeze()
+            r2l = self._resize_(r2l).squeeze()
+
+            left2right.append(l2r)
+            right2left.append(r2l)
             # 获取图片3d相关信息
             kpts1, kpts2 = get_points(pred_3d, inp1_3d, inp2_3d, batch["depth1"][i], batch["depth2"][i],
                                       batch["registration_strategy"][i])

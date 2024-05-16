@@ -12,9 +12,10 @@ from utilssss.utils import fill_in_the_missing_information_
 
 
 class FeatureRegisterationModule(nn.Module):
-    def __init__(self):
+    def __init__(self, feature_dim):
         super().__init__()
         self.feature_warper = DifferentiableFeatureWarper()
+        self.combine = CombinedModel(feature_dim)
 
     def register_3d_features(
             self,
@@ -95,19 +96,18 @@ class FeatureRegisterationModule(nn.Module):
             image2D1 = visibility1 * (Fright - image1_warped_onto_image2)
             image2D2 = Fright - Fleft2right
 
-            image1 = torch.cat((image1D1, image1D2), 1)  # c  # 重点!!!!!!!!! 实质就是对其融合
-            image2 = torch.cat((image2D1, image2D2), 1)
-        # else:
-        #     image1 = torch.cat((Fleft, Fleft - Fright2left), 1)
-        #     image2 = torch.cat((Fright, Fright - Fleft2right), 1)
+            # image1 = torch.cat((image1D1, image1D2), 1)  # c  # 重点!!!!!!!!! 实质就是对其融合
+            # image2 = torch.cat((image2D1, image2D2), 1)
+            #     先对D1，D2 分别进行注意力处理 后进行+ 得到总D
+            combined_feature1 = self.combine(image1D1, image1D2)
+            combined_feature2 = self.combine(image2D1, image2D2)
+            #     用原特征拼接总D
+            image1 = torch.cat((Fleft, combined_feature1), 1)  # c  # 重点!!!!!!!!! 实质就是对其融合
+            image2 = torch.cat((Fright, combined_feature2), 1)
 
         return image1, image2
 
     def forward(self, batch, image1, image2):
-        # reg_3d = [s in ["3d", None] for s in batch["registration_strategy"]]
-        # reg_2d = [s == "2d" for s in batch["registration_strategy"]]
-        # 获取图片的depth信息
-        # batch = fill_in_the_missing_information_(batch, self.depth_predictor)
 
         image1_, image2_ = self.register_features(batch, image1, image2, "both")
 
@@ -252,3 +252,47 @@ class DifferentiableFeatureWarper(nn.Module):
         image2_warped_onto_image1 = self.warp(batch["image2"], batch["depth2"], image2_camera_K_inv,
                                               image1_camera_K_inv, Rt_2_to_1)
         return image1_warped_onto_image2, image2_warped_onto_image1
+
+
+class AttentionModule(nn.Module):
+    def __init__(self, feature_dim):
+        super(AttentionModule, self).__init__()
+        self.fc1 = nn.Linear(feature_dim * 2, feature_dim // 2)
+        self.fc2 = nn.Linear(feature_dim // 2, 2)
+
+    def forward(self, feature2d, feature3d):
+        # 全局平均池化
+        pooled_feature2d = F.adaptive_avg_pool2d(feature2d, 1).view(feature2d.size(0), -1)
+        pooled_feature3d = F.adaptive_avg_pool2d(feature3d, 1).view(feature3d.size(0), -1)
+
+        # 连接2D和3D特征
+        combined = torch.cat((pooled_feature2d, pooled_feature3d), dim=1)
+
+        # 计算注意力权重
+        attention_weights = F.softmax(self.fc2(F.relu(self.fc1(combined))), dim=1)
+        return attention_weights
+
+
+class CombinedModel(nn.Module):
+    def __init__(self, feature_dim=512):
+        super(CombinedModel, self).__init__()
+        self.attention_module = AttentionModule(feature_dim//2)
+
+    def forward(self, feature2d, feature3d):
+        attention_weights = self.attention_module(feature2d, feature3d)
+
+        # 加权特征
+        weighted_feature2d = attention_weights[:, 0].view(-1, 1, 1, 1) * feature2d
+        weighted_feature3d = attention_weights[:, 1].view(-1, 1, 1, 1) * feature3d
+
+        combined_feature = weighted_feature2d + weighted_feature3d
+        return combined_feature
+
+
+if __name__ == '__main__':
+    model = AttentionModule(feature_dim=768)
+    input_2d = torch.randn(3, 768, 64, 64)  # 示例2D特征
+    input_3d = torch.randn(3, 768, 64, 64)  # 示例3D特征
+
+    output = model(input_2d, input_3d)
+    print(output.shape)

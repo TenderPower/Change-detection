@@ -729,7 +729,6 @@ class WandbCallbackManager(pl.Callback):
         datamodule = DataModule(args)
         datamodule.setup()
         self.test_set_names = datamodule.test_dataset_names
-        self.index = 0
 
     @rank_zero_only
     def on_fit_start(self, trainer, model):

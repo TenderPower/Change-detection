@@ -31,7 +31,12 @@ class Model(pl.LightningModule):
 
         model = build_model(args)
         self.feature_backbone = FeatureBackbone(args, model)
-        self.registeration_module = FeatureRegisterationModule()
+        # self.registeration_module = FeatureRegisterationModule()
+        self.registeration_modules = nn.ModuleList(
+            [
+                FeatureRegisterationModule(i) for i in args.decoder.encoder_channels[1:]
+            ]
+        )
         # keepdim=True
         self.bicubic_resize = K.augmentation.Resize((64, 64), resample=2)
         self.unet_encoder = nn.ModuleList([DownSamplingBlock(i, j) for i, j in args.decoder.downsampling_blocks])
@@ -246,7 +251,7 @@ class Model(pl.LightningModule):
             image2_encoded_features.append(layer(image2_encoded_features[-1]))
         # 进行Feature Registration and Difference
         for i in range(len(self.unet_encoder) + 1):
-            image1_encoded_features[i + 1], image2_encoded_features[i + 1] = self.registeration_module(
+            image1_encoded_features[i + 1], image2_encoded_features[i + 1] = self.registeration_modules[i](
                 batch, image1_encoded_features[i + 1], image2_encoded_features[i + 1]
             )
         image1_decoded_features = self.unet_decoder(*image1_encoded_features)

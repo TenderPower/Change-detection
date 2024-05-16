@@ -16,7 +16,7 @@ from zoedepth.utils.config import get_config
 
 
 class DataModule(pl.LightningDataModule):
-    def __init__(self, args, depth_predictor):
+    def __init__(self, args):
         super().__init__()
         self.batch_size = args.batch_size
         self.test_batch_size = args.test_batch_size
@@ -25,10 +25,8 @@ class DataModule(pl.LightningDataModule):
         self.dataset_configs = args.datasets
         self.dataloader_collate_fn = self.import_method_specific_functions(self.method)
         self.testAlignImage = Test()
-        # self.depth_predictor = torch.hub.load("isl-org/ZoeDepth", "ZoeD_NK", pretrained=True).eval()
-        # self.depth_predictor = Mono(no_cuda=True)
-        # conf = get_config("zoedepth_nk", "infer")
-        # self.depth_predictor = build_model(conf)
+        conf = get_config("zoedepth_nk", "infer")
+        depth_predictor = build_model(conf)
         self.depth_predictor = depth_predictor
 
     @staticmethod
