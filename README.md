@@ -1,14 +1,3 @@
-# [The Change You Want to See](https://www.robots.ox.ac.uk/~vgg/research/cyws/)
-
-[[Project Page]](https://www.robots.ox.ac.uk/~vgg/research/cyws/) [[arXiv]](https://arxiv.org/abs/2209.14341)
-
-In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV) 2023
-
-[Ragav Sachdeva](https://ragavsachdeva.github.io/), [Andrew Zisserman](https://scholar.google.com/citations?hl=en&user=UZ5wscMAAAAJ)
-
-![results](figures/results.png)
-
-## Installation
 
 Option 1:
 
@@ -137,23 +126,12 @@ Testing:
 
 `python main.py --method centernet --gpus 2 --config_file configs/detection_resnet50_3x_coam_layers_affine.yml --decoder_attention scse --test_from_checkpoint <path>`
 
-Demo/Inference:
-
-`python demo_single_pair.py --load_weights_from <path_to_checkpoint> --config_file configs/detection_resnet50_3x_coam_layers_affine.yml --decoder_attention scse`
 
 ### Pre-trained model
 
-|       Test pairs      |  COCO-Inpainted  |  Synthtext-Change | VIRAT-STD | Kubric-Change  |
-|:--------------------:|:----:|:----:|:----:|:----:|
-| [pretrained-resnet50-3x-coam-scSE-affine.ckpt](https://thor.robots.ox.ac.uk/~vgg/data/cyws/pretrained-resnet50-3x-coam-scSE-affine.ckpt.gz) | 0.63 | 0.89 | 0.54 | 0.76
+|                                                                 Test pairs                                                                  | COCO-Inpainted |  Synthtext-Change | VIRAT-STD | Kubric-Change  |
+|:-------------------------------------------------------------------------------------------------------------------------------------------:|:--------------:|:----:|:---------:|:----:|
+| [pretrained-resnet50-3x-coam-scSE-affine.ckpt](https://thor.robots.ox.ac.uk/~vgg/data/cyws/pretrained-resnet50-3x-coam-scSE-affine.ckpt.gz) |      0.63      | 0.89 |   0.54    | 0.76
+|                   [my.ckpt](work/cyws_256_2gpu/homo_cross_softmax_superGlue/checkpoints/epoch=147-val_overall_loss.ckpt)                    |      0.80      | 0.89 |   0.59    | 0.73
 
-## Citation
 
-```
-@InProceedings{Sachdeva_WACV_2023,
-    title = {The Change You Want to See},
-    author = {Sachdeva, Ragav and Zisserman, Andrew},
-    booktitle = {Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)},
-    year = {2023},
-}
-```
